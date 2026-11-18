@@ -8,7 +8,6 @@ import {
   FileDown,
   KeyRound,
   Lock,
-  LogIn,
   LogOut,
   MessageCircle,
   Trash2,
@@ -43,13 +42,11 @@ import {
 } from '../lib/dateUtils';
 import {
   db,
-  getCachedAccessToken,
   handleFirestoreError,
   OperationType,
-  signInWithGoogle,
   signOutUser,
 } from '../lib/firebase';
-import { verifyAdminPasswordSync } from '../lib/adminAuth';
+import { deriveBookingAccessKeySync, verifyAdminPasswordSync } from '../lib/adminAuth';
 import { downloadBookingPdf, downloadCalendarSlotPdf } from '../lib/bookingPdf';
 import { HOMESTAY_DETAILS } from '../data/propertyData';
 import { GoogleSheetSyncPanel } from './GoogleSheetSyncPanel';
@@ -58,7 +55,8 @@ interface BookingCalendarSectionProps {
   user: User | null;
   authReady: boolean;
   adminUnlocked: boolean;
-  onUnlockAdmin: () => void;
+  bookingAccessKey: string | null;
+  onUnlockAdmin: (accessKey: string) => void;
   onLockAdmin: () => void;
   availabilitySlots: AvailabilitySlot[];
   slotsLoading: boolean;
@@ -92,6 +90,7 @@ export function BookingCalendarSection({
   user,
   authReady,
   adminUnlocked,
+  bookingAccessKey,
   onUnlockAdmin,
   onLockAdmin,
   availabilitySlots,
@@ -135,9 +134,6 @@ export function BookingCalendarSection({
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState<Booking | null>(null);
-  const [authLoading, setAuthLoading] = useState<boolean>(false);
-
-  const isGoogleSignedIn = Boolean(user && user.emailVerified);
 
   // Keep calendar filter aligned when parent triggers Homestay/Roomstay selection
   const handleUnitChange = (unit: UnitType) => {
@@ -273,32 +269,6 @@ export function BookingCalendarSection({
     setCheckOut(dateStr);
   };
 
-  const handleGoogleSignIn = async () => {
-    setAuthLoading(true);
-    setFormError(null);
-    try {
-      const signedInUser = await signInWithGoogle();
-      if (!guestName && signedInUser.displayName) {
-        setGuestName(signedInUser.displayName);
-      }
-      const token = getCachedAccessToken();
-      if (token) {
-        onSheetsTokenObtained(token);
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Gagal log masuk dengan Google.';
-      if (msg.includes('popup-blocked')) {
-        setFormError(
-          'Tetingkap log masuk Google disekat oleh pelayar. Sila klik butang "Log Masuk Google Admin" di atas untuk mengesahkan akaun.'
-        );
-      } else if (!msg.includes('popup-closed-by-user')) {
-        setFormError(`Log masuk Google tidak berjaya (${msg}). Sila cuba lagi.`);
-      }
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
   const handleUnlockAdminSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setAdminAuthError(null);
@@ -311,15 +281,12 @@ export function BookingCalendarSection({
       return;
     }
 
-    onUnlockAdmin();
+    const accessKey = deriveBookingAccessKeySync(adminPasswordInput);
+    onUnlockAdmin(accessKey);
     setAdminPasswordInput('');
     setVisitorClickNotice(null);
+    setFormError(null);
     setVerifyingAdmin(false);
-
-    // Call signInWithGoogle synchronously in the same click event if no Google account is signed in yet
-    if (!user) {
-      void handleGoogleSignIn();
-    }
   };
 
   const handleSubmitBooking = async (e: React.FormEvent) => {
@@ -327,13 +294,8 @@ export function BookingCalendarSection({
     setFormError(null);
     setBookingSuccess(null);
 
-    if (!adminUnlocked) {
+    if (!adminUnlocked || !bookingAccessKey) {
       setFormError('Akses tempahan dikunci. Sila masukkan kata kunci terlebih dahulu.');
-      return;
-    }
-
-    if (!user) {
-      setFormError('Kata kunci disahkan. Sila log masuk mana-mana akaun Google terlebih dahulu untuk menyimpan tempahan ke pangkalan data.');
       return;
     }
 
@@ -380,14 +342,9 @@ export function BookingCalendarSection({
       return;
     }
 
-    let currentUser = user;
-    if (!currentUser) {
-      setFormError('Sila log masuk dengan akaun Google terlebih dahulu untuk mengesahkan tempahan anda.');
-      return;
-    }
-
     setSubmitting(true);
     const bookingId = `bk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const actorId = user?.uid || 'admin_passcode';
 
     try {
       const batch = writeBatch(db);
@@ -395,7 +352,7 @@ export function BookingCalendarSection({
       const slotRef = doc(collection(db, 'availability_slots'), bookingId);
 
       batch.set(bookingRef, {
-        userId: currentUser.uid,
+        userId: actorId,
         unitType: selectedUnit,
         guestName: trimmedName,
         phone: trimmedPhone,
@@ -406,13 +363,14 @@ export function BookingCalendarSection({
         nights,
         totalAmount,
         status: 'confirmed',
+        accessKey: bookingAccessKey,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
       batch.set(slotRef, {
         bookingId,
-        userId: currentUser.uid,
+        userId: actorId,
         unitType: selectedUnit,
         checkIn,
         checkOut,
@@ -424,7 +382,7 @@ export function BookingCalendarSection({
 
       setBookingSuccess({
         id: bookingId,
-        userId: currentUser.uid,
+        userId: actorId,
         unitType: selectedUnit,
         guestName: trimmedName,
         phone: trimmedPhone,
@@ -435,6 +393,7 @@ export function BookingCalendarSection({
         nights,
         totalAmount,
         status: 'confirmed',
+        accessKey: bookingAccessKey,
       });
 
       // Jump calendar to the booked check-in month
@@ -454,7 +413,7 @@ export function BookingCalendarSection({
   };
 
   const handleCancelBooking = async (booking: Booking) => {
-    if (!user || booking.status === 'cancelled') return;
+    if ((!adminUnlocked && !user) || booking.status === 'cancelled') return;
     setCancellingId(booking.id);
     try {
       const batch = writeBatch(db);
@@ -1076,29 +1035,18 @@ export function BookingCalendarSection({
 
               {rightTab === 'form' ? (
                 <form onSubmit={handleSubmitBooking} className="space-y-4">
-                  {!isGoogleSignedIn ? (
-                    <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 space-y-2.5">
-                      <p className="text-xs text-amber-950 leading-relaxed">
-                        Kata kunci disahkan. Sila log masuk dengan mana-mana akaun Google untuk menyimpan tempahan ke pangkalan data.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={handleGoogleSignIn}
-                        disabled={authLoading}
-                        className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#14532D] text-white text-xs font-semibold hover:bg-[#166534] transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        <LogIn className="w-3.5 h-3.5" />
-                        {authLoading ? 'Menyambung...' : 'Log Masuk Akaun Google'}
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between text-xs text-[#525C54] pb-1">
-                      <span>
-                        Akaun Aktif: <strong className="text-[#161B17]">{user?.email}</strong>
-                      </span>
-                      <span className="font-medium text-[#14532D]">Kata Kunci Disahkan</span>
-                    </div>
-                  )}
+                  <div className="flex items-center justify-between text-xs text-[#525C54] pb-1">
+                    <span>
+                      {user?.email ? (
+                        <>
+                          Mod Admin · <strong className="text-[#161B17]">{user.email}</strong>
+                        </>
+                      ) : (
+                        'Mod Admin · Akses Kata Kunci'
+                      )}
+                    </span>
+                    <span className="font-medium text-[#14532D]">Kata Kunci Disahkan</span>
+                  </div>
 
               {/* 1. Pilihan Homestay atau Roomstay */}
               <div>
@@ -1341,25 +1289,7 @@ export function BookingCalendarSection({
           ) : (
             /* Rekod Tempahan Saya / Admin View */
             <div className="space-y-3">
-              {!user ? (
-                <div className="text-center py-8 px-4 rounded-xl bg-[#F8F9F7] border border-[#DDE2DC]">
-                  <CalendarIcon className="w-8 h-8 text-[#525C54] mx-auto mb-2" />
-                  <p className="text-sm font-medium text-[#161B17] mb-1">
-                    Log Masuk untuk Lihat Rekod
-                  </p>
-                  <p className="text-xs text-[#525C54] mb-4">
-                    Maklumat tempahan peribadi seperti nama dan nombor akaun hanya dipaparkan kepada pemilik tempahan.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleGoogleSignIn}
-                    disabled={authLoading}
-                    className="px-4 py-2 rounded-lg bg-[#14532D] text-white text-xs font-medium hover:bg-[#166534] transition-colors cursor-pointer"
-                  >
-                    Log Masuk dengan Google
-                  </button>
-                </div>
-              ) : bookingsLoading ? (
+              {bookingsLoading ? (
                 <div className="space-y-3 animate-pulse">
                   <div className="h-28 rounded-xl bg-[#EFF2EE]" />
                   <div className="h-28 rounded-xl bg-[#EFF2EE]" />

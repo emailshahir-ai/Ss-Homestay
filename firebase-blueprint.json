@@ -77,6 +77,13 @@
           "type": "string",
           "format": "date-time",
           "description": "Server timestamp when booking was last updated."
+        },
+        "accessKey": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Passcode-derived access key hash authorizing password-only admin operations."
         }
       },
       "required": [

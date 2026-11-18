@@ -53,6 +53,7 @@ function HomestayApp() {
 
   const [selectedUnit, setSelectedUnit] = useState<UnitType>('homestay');
   const [adminUnlocked, setAdminUnlocked] = useState<boolean>(false);
+  const [bookingAccessKey, setBookingAccessKey] = useState<string | null>(null);
 
   // Google Sheet CSV & Live Sheet states
   const [csvRows, setCsvRows] = useState<SheetBookingRow[]>([]);
@@ -74,7 +75,6 @@ function HomestayApp() {
       setAuthReady(true);
       if (!firebaseUser) {
         setSheetsAccessToken(null);
-        setAdminUnlocked(false);
       } else {
         const token = getCachedAccessToken();
         if (token) {
@@ -173,20 +173,20 @@ function HomestayApp() {
     return () => unsubFeedback();
   }, []);
 
-  // Bookings listener: primary admin reads all bookings; any verified signed-in account reads its own bookings
+  // Bookings listener: primary admin reads all bookings; passcode-unlocked session reads passcode-authorized bookings without needing Google login
   useEffect(() => {
     if (!authReady) return;
-    if (!user || !user.emailVerified) {
+    const isPrimaryAdmin = Boolean(user && user.email === ADMIN_EMAIL && user.emailVerified);
+    if (!isPrimaryAdmin && (!adminUnlocked || !bookingAccessKey)) {
       setUserBookings([]);
       setBookingsLoading(false);
       return;
     }
 
-    const isPrimaryAdmin = user.email === ADMIN_EMAIL;
     setBookingsLoading(true);
     const bookingsQuery = isPrimaryAdmin
       ? collection(db, 'bookings')
-      : query(collection(db, 'bookings'), where('userId', '==', user.uid));
+      : query(collection(db, 'bookings'), where('accessKey', '==', bookingAccessKey));
 
     const unsubBookings = onSnapshot(
       bookingsQuery,
@@ -207,6 +207,7 @@ function HomestayApp() {
               nights: Number(data.nights || 1),
               totalAmount: Number(data.totalAmount || 0),
               status: (data.status === 'cancelled' ? 'cancelled' : 'confirmed') as BookingStatus,
+              accessKey: data.accessKey ? String(data.accessKey) : undefined,
               createdAt: data.createdAt,
               updatedAt: data.updatedAt,
             };
@@ -223,7 +224,7 @@ function HomestayApp() {
     );
 
     return () => unsubBookings();
-  }, [authReady, user]);
+  }, [authReady, user, adminUnlocked, bookingAccessKey]);
 
   // Merge Firestore availability slots with synced Google Sheet rows (deduplicated)
   const mergedAvailabilitySlots = useMemo<AvailabilitySlot[]>(() => {
@@ -400,8 +401,15 @@ function HomestayApp() {
           user={user}
           authReady={authReady}
           adminUnlocked={adminUnlocked}
-          onUnlockAdmin={() => setAdminUnlocked(true)}
-          onLockAdmin={() => setAdminUnlocked(false)}
+          bookingAccessKey={bookingAccessKey}
+          onUnlockAdmin={(accessKey) => {
+            setBookingAccessKey(accessKey);
+            setAdminUnlocked(true);
+          }}
+          onLockAdmin={() => {
+            setAdminUnlocked(false);
+            setBookingAccessKey(null);
+          }}
           availabilitySlots={mergedAvailabilitySlots}
           slotsLoading={slotsLoading && sheetLoading}
           userBookings={userBookings}

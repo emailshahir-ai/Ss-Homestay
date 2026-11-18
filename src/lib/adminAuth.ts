@@ -1,4 +1,5 @@
 const ADMIN_SALT = 'ss_homestay_admin_v1:';
+const BOOKING_KEY_SALT = 'ss_homestay_booking_key_v1:';
 const ADMIN_HASH_HEX =
   '6224883cbce18ef1ea257d5163bfb8a1ab889a6dee5a047fb0ffe191786268dd';
 
@@ -80,4 +81,9 @@ export function verifyAdminPasswordSync(input: string): boolean {
   const trimmed = input.trim();
   if (!trimmed) return false;
   return sha256HexSync(`${ADMIN_SALT}${trimmed}`) === ADMIN_HASH_HEX;
+}
+
+export function deriveBookingAccessKeySync(password: string): string {
+  const trimmed = password.trim();
+  return sha256HexSync(`${BOOKING_KEY_SALT}${trimmed}`);
 }

@@ -32,6 +32,16 @@ service cloud.firestore {
       return isVerified() && request.auth.token.email == 'emailshahir@gmail.com';
     }
 
+    function isExpectedAccessKey(val) {
+      return val is string
+        && val.size() == 64
+        && val == '2c5653d9206c3eb9d3f60f8d9ec778050dc73e9b4b8bb1d5aef1230a58b18f78';
+    }
+
+    function hasValidAccessKey(data) {
+      return data.keys().hasAny(['accessKey']) && isExpectedAccessKey(data.accessKey);
+    }
+
     function isValidDateString(val) {
       return val is string && val.size() == 10 && val.matches('^\\d{4}-\\d{2}-\\d{2}$');
     }
@@ -46,12 +56,13 @@ service cloud.firestore {
       && data.keys().hasOnly([
         'userId', 'unitType', 'guestName', 'phone', 'state',
         'checkIn', 'checkOut', 'accountNumber',
-        'nights', 'totalAmount', 'status', 'createdAt', 'updatedAt'
+        'nights', 'totalAmount', 'status', 'createdAt', 'updatedAt', 'accessKey'
       ])
       && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128
       && data.unitType in ['homestay', 'roomstay']
       && data.guestName is string && data.guestName.size() >= 2 && data.guestName.size() <= 100
       && (!data.keys().hasAny(['phone']) || (data.phone is string && data.phone.size() <= 24))
+      && (!data.keys().hasAny(['accessKey']) || (data.accessKey is string && data.accessKey.size() == 64 && data.accessKey.matches('^[a-f0-9]{64}$')))
       && data.state is string && data.state.size() >= 2 && data.state.size() <= 50
       && isValidDateString(data.checkIn)
       && isValidDateString(data.checkOut)
@@ -99,62 +110,71 @@ service cloud.firestore {
       && data.createdAt is timestamp;
     }
 
-    // Bookings Collection (Owner-Scoped + Admin Override; Frontend Protected by Passcode)
+    // Bookings Collection (Passcode-Authorized Without Account Login + Primary Admin Override)
     match /bookings/{bookingId} {
-      allow get: if isValidId(bookingId) && (isAdmin() || (isVerified() && existing().userId == request.auth.uid));
-      allow list: if isAdmin() || (isVerified() && existing().userId == request.auth.uid);
-      allow create: if isVerified()
-        && isValidId(bookingId)
+      allow get: if isValidId(bookingId) && (isAdmin() || hasValidAccessKey(existing()));
+      allow list: if isAdmin() || hasValidAccessKey(existing());
+      allow create: if isValidId(bookingId)
         && isValidBooking(incoming())
-        && incoming().userId == request.auth.uid
+        && (
+          (isAdmin() && incoming().userId == request.auth.uid)
+          || hasValidAccessKey(incoming())
+        )
         && incoming().status == 'confirmed'
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
         && existsAfter(/databases/$(database)/documents/availability_slots/$(bookingId));
-      allow update: if isVerified()
-        && isValidId(bookingId)
+      allow update: if isValidId(bookingId)
         && isValidBooking(incoming())
         && incoming().userId == existing().userId
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          isAdmin() || (
-            existing().userId == request.auth.uid
+          isAdmin()
+          || (
+            hasValidAccessKey(existing())
+            && incoming().accessKey == existing().accessKey
             && existing().status == 'confirmed'
             && incoming().status == 'cancelled'
             && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
           )
         );
-      allow delete: if isValidId(bookingId) && (isAdmin() || (isVerified() && existing().userId == request.auth.uid));
+      allow delete: if isValidId(bookingId) && (isAdmin() || hasValidAccessKey(existing()));
     }
 
-    // Public Calendar Availability Slots (Read-Only for Public, Atomic Owner/Admin Writes)
+    // Public Calendar Availability Slots (Read-Only for Public, Atomic Passcode/Admin Writes)
     match /availability_slots/{slotId} {
       allow get: if isValidId(slotId);
       allow list: if true;
-      allow create: if isVerified()
-        && isValidId(slotId)
+      allow create: if isValidId(slotId)
         && isValidAvailabilitySlot(incoming())
         && incoming().bookingId == slotId
-        && incoming().userId == request.auth.uid
         && incoming().status == 'confirmed'
         && incoming().createdAt == request.time
-        && existsAfter(/databases/$(database)/documents/bookings/$(slotId));
-      allow update: if isVerified()
-        && isValidId(slotId)
+        && existsAfter(/databases/$(database)/documents/bookings/$(slotId))
+        && (
+          (isAdmin() && incoming().userId == request.auth.uid)
+          || (
+            hasValidAccessKey(getAfter(/databases/$(database)/documents/bookings/$(slotId)).data)
+            && incoming().userId == getAfter(/databases/$(database)/documents/bookings/$(slotId)).data.userId
+          )
+        );
+      allow update: if isValidId(slotId)
         && isValidAvailabilitySlot(incoming())
         && incoming().bookingId == existing().bookingId
         && incoming().userId == existing().userId
         && incoming().createdAt == existing().createdAt
         && (
-          isAdmin() || (
-            existing().userId == request.auth.uid
-            && existing().status == 'confirmed'
+          isAdmin()
+          || (
+            existing().status == 'confirmed'
             && incoming().status == 'cancelled'
             && incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+            && hasValidAccessKey(get(/databases/$(database)/documents/bookings/$(slotId)).data)
+            && getAfter(/databases/$(database)/documents/bookings/$(slotId)).data.status == 'cancelled'
           )
         );
-      allow delete: if isValidId(slotId) && (isAdmin() || (isVerified() && existing().userId == request.auth.uid));
+      allow delete: if isValidId(slotId) && (isAdmin() || hasValidAccessKey(get(/databases/$(database)/documents/bookings/$(slotId)).data));
     }
 
     // Public Guest Feedback Collection

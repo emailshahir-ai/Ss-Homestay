@@ -15,6 +15,7 @@ export interface Booking {
   nights: number;
   totalAmount: number;
   status: BookingStatus;
+  accessKey?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
