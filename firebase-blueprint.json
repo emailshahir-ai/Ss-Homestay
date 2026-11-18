@@ -59,6 +59,10 @@
           "type": "number",
           "description": "Number of nights stayed."
         },
+        "discountAmount": {
+          "type": "number",
+          "description": "Discount amount in MYR deducted from subtotal."
+        },
         "totalAmount": {
           "type": "number",
           "description": "Total booking amount in MYR."

@@ -18,6 +18,7 @@ export interface BookingPdfPayload {
   checkIn: string;
   checkOut: string;
   nights: number;
+  discountAmount?: number;
   totalAmount: number;
   accountNumber?: string;
   status: 'confirmed' | 'cancelled';
@@ -42,7 +43,38 @@ function formatPrintedTimestamp(): string {
   return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
 }
 
-export function generateBookingPdf(payload: BookingPdfPayload): void {
+const PDF_LOGO_URL = '/assets/aistudio/logo_hs_dn_rs_0f215409.png';
+const PDF_LOGO_ASPECT = 2480 / 1002;
+let cachedLogoDataUrl: string | null = null;
+
+async function loadLogoDataUrl(): Promise<string | null> {
+  if (cachedLogoDataUrl) return cachedLogoDataUrl;
+  try {
+    const res = await fetch(PDF_LOGO_URL);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error('Invalid Data URL'));
+        }
+      };
+      reader.onerror = () => reject(reader.error || new Error('FileReader error'));
+      reader.readAsDataURL(blob);
+    });
+    cachedLogoDataUrl = dataUrl;
+    return dataUrl;
+  } catch {
+    return null;
+  }
+}
+
+export async function generateBookingPdf(payload: BookingPdfPayload): Promise<void> {
+  const logoDataUrl = await loadLogoDataUrl();
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -55,33 +87,59 @@ export function generateBookingPdf(payload: BookingPdfPayload): void {
   const unitConfig = UNIT_RATES[payload.unitType];
   const computedNights =
     payload.nights > 0 ? payload.nights : Math.max(1, calculateNights(payload.checkIn, payload.checkOut));
+  const baseSubtotal = computedNights * unitConfig.ratePerNight;
+  const discountVal = Math.max(0, Number(payload.discountAmount || 0));
   const computedTotal =
-    payload.totalAmount > 0 ? payload.totalAmount : computedNights * unitConfig.ratePerNight;
+    Number.isFinite(payload.totalAmount) && payload.totalAmount >= 0
+      ? payload.totalAmount
+      : Math.max(0, baseSubtotal - discountVal);
 
-  // 1. Header Banner (Deep Forest Green)
+  // 1. Header Banner (Top Forest Green Accent Bar + Clean White Header with Brand Logo)
   doc.setFillColor(20, 83, 45);
-  doc.rect(0, 0, pageWidth, 38, 'F');
+  doc.rect(0, 0, pageWidth, 4, 'F');
 
-  doc.setTextColor(255, 255, 255);
+  if (logoDataUrl) {
+    const logoHeight = 23;
+    const logoWidth = logoHeight * PDF_LOGO_ASPECT;
+    doc.addImage(logoDataUrl, 'PNG', margin, 8, logoWidth, logoHeight, undefined, 'FAST');
+    doc.setTextColor(82, 92, 84);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.2);
+    doc.text(
+      'Lot 13085, Kg. Padang Enggang · Tel / WhatsApp: 016-9867367 / 016-9863776',
+      margin,
+      37
+    );
+  } else {
+    doc.setTextColor(20, 83, 45);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(17);
+    doc.text('SS HOMESTAY & ROOMSTAY', margin, 16);
+
+    doc.setTextColor(82, 92, 84);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text(LOCATION_INFO.address, margin, 22.5);
+    doc.text('Tel / WhatsApp: 016-9867367 (Hjh. Sarina) | 016-9863776 (Hj. Shahir)', margin, 28);
+  }
+
+  doc.setTextColor(20, 83, 45);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(17);
-  doc.text('SS HOMESTAY & ROOMSTAY', margin, 15);
+  doc.setFontSize(12);
+  doc.text('SLIP PENGESAHAN TEMPAHAN', pageWidth - margin, 16, { align: 'right' });
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.text(LOCATION_INFO.address, margin, 22);
-  doc.text('Tel / WhatsApp: 016-9867367 (Hjh. Sarina) | 016-9863776 (Hj. Shahir)', margin, 28);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text('SLIP PENGESAHAN TEMPAHAN', pageWidth - margin, 15, { align: 'right' });
-
+  doc.setTextColor(82, 92, 84);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
-  doc.text(`No. Rujukan: ${payload.referenceId}`, pageWidth - margin, 22, { align: 'right' });
+  doc.text(`No. Rujukan: ${payload.referenceId}`, pageWidth - margin, 22.5, { align: 'right' });
   doc.text(`Dicetak: ${formatPrintedTimestamp()}`, pageWidth - margin, 28, { align: 'right' });
 
-  let y = 48;
+  doc.setDrawColor(20, 83, 45);
+  doc.setLineWidth(0.5);
+  doc.line(margin, 42, pageWidth - margin, 42);
+  doc.setLineWidth(0.2);
+
+  let y = 49;
 
   // 2. Unit & Status Highlight Box
   doc.setFillColor(248, 249, 247);
@@ -163,9 +221,12 @@ export function generateBookingPdf(payload: BookingPdfPayload): void {
   doc.text('Ringkasan Bayaran', margin, y);
   y += 4;
 
+  const hasDiscount = discountVal > 0;
+  const summaryBoxHeight = hasDiscount ? 42 : 34;
+
   doc.setFillColor(241, 247, 243);
   doc.setDrawColor(132, 179, 149);
-  doc.roundedRect(margin, y, contentWidth, 34, 3, 3, 'FD');
+  doc.roundedRect(margin, y, contentWidth, summaryBoxHeight, 3, 3, 'FD');
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
@@ -173,27 +234,38 @@ export function generateBookingPdf(payload: BookingPdfPayload): void {
   doc.text(`Kadar Penginapan (${computedNights} malam x RM ${unitConfig.ratePerNight})`, margin + 5, y + 8);
   doc.setTextColor(22, 27, 23);
   doc.setFont('helvetica', 'bold');
-  doc.text(formatMYR(computedTotal), pageWidth - margin - 5, y + 8, { align: 'right' });
+  doc.text(formatMYR(baseSubtotal), pageWidth - margin - 5, y + 8, { align: 'right' });
+
+  let nextLineY = y + 16;
+  if (hasDiscount) {
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(20, 83, 45);
+    doc.text('Diskaun Harga', margin + 5, nextLineY);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`- ${formatMYR(discountVal)}`, pageWidth - margin - 5, nextLineY, { align: 'right' });
+    nextLineY += 8;
+  }
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(82, 92, 84);
-  doc.text('Deposit Keselamatan (Semasa Check-In)', margin + 5, y + 16);
+  doc.text('Deposit Keselamatan (Semasa Check-In)', margin + 5, nextLineY);
   doc.setTextColor(22, 27, 23);
-  doc.text(`RM ${HOMESTAY_DETAILS.deposit}.00 (Dipulangkan selepas check-out)`, pageWidth - margin - 5, y + 16, {
+  doc.text(`RM ${HOMESTAY_DETAILS.deposit}.00 (Dipulangkan selepas check-out)`, pageWidth - margin - 5, nextLineY, {
     align: 'right',
   });
 
+  const dividerY = nextLineY + 4.5;
   doc.setDrawColor(198, 222, 201);
-  doc.line(margin + 5, y + 20.5, pageWidth - margin - 5, y + 20.5);
+  doc.line(margin + 5, dividerY, pageWidth - margin - 5, dividerY);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(20, 83, 45);
-  doc.text('JUMLAH PENGINAPAN', margin + 5, y + 28.5);
+  doc.text('JUMLAH PENGINAPAN', margin + 5, dividerY + 8);
   doc.setFontSize(13);
-  doc.text(formatMYR(computedTotal), pageWidth - margin - 5, y + 28.5, { align: 'right' });
+  doc.text(formatMYR(computedTotal), pageWidth - margin - 5, dividerY + 8, { align: 'right' });
 
-  y += 44;
+  y += summaryBoxHeight + 10;
 
   // 5. House Rules & Guest Policy Box
   doc.setTextColor(22, 27, 23);
@@ -243,8 +315,8 @@ export function generateBookingPdf(payload: BookingPdfPayload): void {
   doc.save(filename);
 }
 
-export function downloadBookingPdf(booking: Booking): void {
-  generateBookingPdf({
+export async function downloadBookingPdf(booking: Booking): Promise<void> {
+  await generateBookingPdf({
     referenceId: booking.id,
     unitType: booking.unitType,
     guestName: booking.guestName,
@@ -253,6 +325,7 @@ export function downloadBookingPdf(booking: Booking): void {
     checkIn: booking.checkIn,
     checkOut: booking.checkOut,
     nights: booking.nights,
+    discountAmount: booking.discountAmount,
     totalAmount: booking.totalAmount,
     accountNumber: booking.accountNumber,
     status: booking.status,
@@ -260,10 +333,10 @@ export function downloadBookingPdf(booking: Booking): void {
   });
 }
 
-export function downloadSheetBookingPdf(row: SheetBookingRow): void {
+export async function downloadSheetBookingPdf(row: SheetBookingRow): Promise<void> {
   const nights = Math.max(1, calculateNights(row.checkIn, row.checkOut));
   const totalAmount = nights * UNIT_RATES[row.unitType].ratePerNight;
-  generateBookingPdf({
+  await generateBookingPdf({
     referenceId: `GS-${row.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 14)}`,
     unitType: row.unitType,
     guestName: row.name,
@@ -278,23 +351,23 @@ export function downloadSheetBookingPdf(row: SheetBookingRow): void {
   });
 }
 
-export function downloadCalendarSlotPdf(
+export async function downloadCalendarSlotPdf(
   slot: AvailabilitySlot,
   matchedBooking?: Booking,
   matchedSheet?: SheetBookingRow
-): void {
+): Promise<void> {
   if (matchedBooking) {
-    downloadBookingPdf(matchedBooking);
+    await downloadBookingPdf(matchedBooking);
     return;
   }
   if (matchedSheet) {
-    downloadSheetBookingPdf(matchedSheet);
+    await downloadSheetBookingPdf(matchedSheet);
     return;
   }
 
   const nights = Math.max(1, calculateNights(slot.checkIn, slot.checkOut));
   const totalAmount = nights * UNIT_RATES[slot.unitType].ratePerNight;
-  generateBookingPdf({
+  await generateBookingPdf({
     referenceId: slot.bookingId || slot.id,
     unitType: slot.unitType,
     guestName: slot.guestName || 'Tetamu Berdaftar',

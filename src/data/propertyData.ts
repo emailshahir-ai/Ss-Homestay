@@ -1,6 +1,6 @@
 import { GalleryPhoto } from '../types/homestay';
 
-export const HERO_IMAGE = '/assets/aistudio/head_383dda2d.jpg';
+export const HERO_IMAGE = '/assets/aistudio/ATAS_ad17a06d.jpg';
 export const OFFICIAL_POSTER_IMAGE = '/assets/aistudio/image_4ceff111_58aebfe5.jpg';
 export const ROOMSTAY_PAMPHLET_IMAGE = '/assets/aistudio/PHAMPLET_ROOMSTAY_290c1da3.jpg';
 
@@ -186,9 +186,10 @@ export const CONTACT_PERSONS = [
 export const LOCATION_INFO = {
   name: 'Ss Homestay & Roomstay (Padang Enggang, Kota Bharu)',
   address: 'Lot 13085, Kampung Padang Enggang, 15100 Kota Bharu, Kelantan',
+  googleMapsUrl: 'https://maps.app.goo.gl/2USQd8Hm6kPUN6WE7',
   coordinates: {
-    lat: 6.0865,
-    lng: 102.2389,
+    lat: 6.0801294,
+    lng: 102.2439067,
   },
   tagline: 'Jom Bederat di Kota Bharu!',
   landmarks: [

@@ -13,6 +13,7 @@ export interface Booking {
   checkOut: string; // YYYY-MM-DD
   accountNumber: string;
   nights: number;
+  discountAmount?: number;
   totalAmount: number;
   status: BookingStatus;
   accessKey?: string;
@@ -110,6 +111,7 @@ export const VALIDATION_LIMITS = {
   COMMENT_MAX: 600,
   MIN_NIGHTS: 1,
   MAX_NIGHTS: 60,
+  DISCOUNT_MAX: 100000,
 } as const;
 
 export const ADMIN_EMAIL = 'emailshahir@gmail.com';

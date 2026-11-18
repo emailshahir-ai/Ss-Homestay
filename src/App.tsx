@@ -238,6 +238,10 @@ function HomestayApp() {
               checkOut: String(data.checkOut || ''),
               accountNumber: String(data.accountNumber || ''),
               nights: Number(data.nights || 1),
+              discountAmount:
+                typeof data.discountAmount === 'number' && data.discountAmount > 0
+                  ? data.discountAmount
+                  : 0,
               totalAmount: Number(data.totalAmount || 0),
               status: (data.status === 'cancelled' ? 'cancelled' : 'confirmed') as BookingStatus,
               accessKey: data.accessKey ? String(data.accessKey) : undefined,
@@ -467,9 +471,9 @@ function HomestayApp() {
           <div className="rounded-2xl overflow-hidden border border-[#DDE2DC] bg-white mb-6">
             <ResilientImage
               src={HERO_IMAGE}
-              alt="Gambar utama Ss Homestay Kampung Padang Enggang dengan kolam renang persendirian dan fasad banglo"
+              alt="Banner utama Ss Homestay & Roomstay Kampung Padang Enggang, Kota Bharu dengan kolam renang persendirian, fasad rumah, lokasi Lot 13085 dan kemudahan lengkap"
               title="Ss Homestay & Roomstay"
-              className="w-full aspect-[2480/970] max-h-[460px] object-cover object-top block"
+              className="w-full aspect-[2480/1344] object-cover block"
             />
           </div>
 

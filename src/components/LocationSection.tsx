@@ -6,10 +6,8 @@ export function LocationSection() {
   const [copied, setCopied] = useState(false);
 
   const { lat, lng } = LOCATION_INFO.coordinates;
-  const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-    'Lot 13085, Kampung Padang Enggang, 15100 Kota Bharu, Kelantan'
-  )}`;
-  const osmEmbedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.015}%2C${lat - 0.01}%2C${lng + 0.015}%2C${lat + 0.01}&layer=mapnik&marker=${lat}%2C${lng}`;
+  const googleMapsUrl = LOCATION_INFO.googleMapsUrl;
+  const osmEmbedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.008}%2C${lat - 0.005}%2C${lng + 0.008}%2C${lat + 0.005}&layer=mapnik&marker=${lat}%2C${lng}`;
 
   const handleCopyAddress = async () => {
     try {

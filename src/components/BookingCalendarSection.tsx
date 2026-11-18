@@ -144,6 +144,7 @@ export function BookingCalendarSection({
   const [checkIn, setCheckIn] = useState<string>('');
   const [checkOut, setCheckOut] = useState<string>('');
   const [accountNumber, setAccountNumber] = useState<string>('');
+  const [discountInput, setDiscountInput] = useState<string>('');
   const [autoSyncWebhook, setAutoSyncWebhook] = useState<boolean>(true);
 
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -252,7 +253,18 @@ export function BookingCalendarSection({
 
   const nights = useMemo(() => calculateNights(checkIn, checkOut), [checkIn, checkOut]);
   const nightlyRate = UNIT_RATES[selectedUnit].ratePerNight;
-  const totalAmount = nights * nightlyRate;
+  const subtotalAmount = nights * nightlyRate;
+  const parsedDiscount = useMemo(() => {
+    const trimmed = discountInput.trim();
+    if (!trimmed) return 0;
+    const num = Number(trimmed);
+    return Number.isFinite(num) ? Math.round(num * 100) / 100 : Number.NaN;
+  }, [discountInput]);
+  const effectiveDiscount =
+    Number.isFinite(parsedDiscount) && parsedDiscount > 0
+      ? Math.min(parsedDiscount, subtotalAmount > 0 ? subtotalAmount : parsedDiscount)
+      : 0;
+  const totalAmount = Math.max(0, Math.round((subtotalAmount - effectiveDiscount) * 100) / 100);
 
   const hasOverlap = useMemo(() => {
     if (!checkIn || !checkOut || nights <= 0) return false;
@@ -440,6 +452,24 @@ export function BookingCalendarSection({
       return;
     }
 
+    if (
+      Number.isNaN(parsedDiscount) ||
+      parsedDiscount < 0 ||
+      parsedDiscount > VALIDATION_LIMITS.DISCOUNT_MAX
+    ) {
+      setFormError('Sila masukkan jumlah diskaun yang sah (0 atau lebih).');
+      return;
+    }
+
+    if (parsedDiscount > subtotalAmount) {
+      setFormError(
+        `Diskaun (${formatMYR(parsedDiscount)}) tidak boleh melebihi kadar penginapan (${formatMYR(subtotalAmount)}).`
+      );
+      return;
+    }
+
+    const safeDiscount = Math.round(parsedDiscount * 100) / 100;
+
     setSubmitting(true);
     const bookingId = `bk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const actorId = user?.uid || 'admin_passcode';
@@ -459,6 +489,7 @@ export function BookingCalendarSection({
         checkOut,
         accountNumber: trimmedAccount,
         nights,
+        discountAmount: safeDiscount,
         totalAmount,
         status: 'confirmed',
         accessKey: bookingAccessKey,
@@ -489,6 +520,7 @@ export function BookingCalendarSection({
         checkOut,
         accountNumber: trimmedAccount,
         nights,
+        discountAmount: safeDiscount,
         totalAmount,
         status: 'confirmed',
         accessKey: bookingAccessKey,
@@ -505,6 +537,7 @@ export function BookingCalendarSection({
       setCheckIn('');
       setCheckOut('');
       setAccountNumber('');
+      setDiscountInput('');
       setPhone('');
 
       // If Apps Script Web App is connected, save automatically and verify row appears in Google Sheet
@@ -1281,24 +1314,46 @@ export function BookingCalendarSection({
                 </div>
               </div>
 
-              {/* 6. No Akaun */}
-              <div>
-                <label htmlFor="booking-account" className="block text-xs font-semibold text-[#161B17] mb-1.5">
-                  No. Akaun Bank / Rujukan Pembayaran
-                </label>
-                <input
-                  id="booking-account"
-                  type="text"
-                  required
-                  maxLength={VALIDATION_LIMITS.ACCOUNT_MAX}
-                  value={accountNumber}
-                  onChange={(e) => setAccountNumber(e.target.value)}
-                  placeholder="Contoh: 1621 0648 9210 (Maybank)"
-                  className="w-full px-3.5 py-2.5 text-sm font-mono-tabular rounded-lg border border-[#DDE2DC] bg-white text-[#161B17] placeholder:text-[#9AA39C] focus:outline-none focus:border-[#14532D]"
-                />
+              {/* 6. No Akaun & Diskaun Harga */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                <div className="sm:col-span-7">
+                  <label htmlFor="booking-account" className="block text-xs font-semibold text-[#161B17] mb-1.5">
+                    No. Akaun Bank / Rujukan Pembayaran
+                  </label>
+                  <input
+                    id="booking-account"
+                    type="text"
+                    required
+                    maxLength={VALIDATION_LIMITS.ACCOUNT_MAX}
+                    value={accountNumber}
+                    onChange={(e) => setAccountNumber(e.target.value)}
+                    placeholder="Contoh: 1621 0648 9210 (Maybank)"
+                    className="w-full px-3.5 py-2.5 text-sm font-mono-tabular rounded-lg border border-[#DDE2DC] bg-white text-[#161B17] placeholder:text-[#9AA39C] focus:outline-none focus:border-[#14532D]"
+                  />
+                </div>
+                <div className="sm:col-span-5">
+                  <label htmlFor="booking-discount" className="block text-xs font-semibold text-[#161B17] mb-1.5">
+                    Diskaun Harga (RM)
+                  </label>
+                  <input
+                    id="booking-discount"
+                    type="number"
+                    min={0}
+                    max={VALIDATION_LIMITS.DISCOUNT_MAX}
+                    step="any"
+                    inputMode="decimal"
+                    value={discountInput}
+                    onChange={(e) => {
+                      setDiscountInput(e.target.value);
+                      setFormError(null);
+                    }}
+                    placeholder="0 (Pilihan)"
+                    className="w-full px-3.5 py-2.5 text-sm font-mono-tabular rounded-lg border border-[#DDE2DC] bg-white text-[#161B17] placeholder:text-[#9AA39C] focus:outline-none focus:border-[#14532D]"
+                  />
+                </div>
               </div>
 
-              {/* 7. Jumlah (Paparan Tarikh Masuk, Tarikh Keluar & Jumlah) */}
+              {/* 7. Jumlah (Paparan Tarikh Masuk, Tarikh Keluar, Diskaun & Jumlah) */}
               <div className="p-4 rounded-xl bg-[#F8F9F7] border border-[#DDE2DC] space-y-2">
                 <div className="flex items-center justify-between text-xs text-[#525C54]">
                   <span>Tarikh Masuk</span>
@@ -1315,9 +1370,19 @@ export function BookingCalendarSection({
                 <div className="flex items-center justify-between text-xs text-[#525C54]">
                   <span>Kadar ({UNIT_RATES[selectedUnit].label})</span>
                   <span className="font-mono-tabular text-[#161B17]">
-                    {nights > 0 ? `${nights} malam × RM ${nightlyRate}` : `RM ${nightlyRate} / malam`}
+                    {nights > 0
+                      ? `${nights} malam × RM ${nightlyRate} (${formatMYR(subtotalAmount)})`
+                      : `RM ${nightlyRate} / malam`}
                   </span>
                 </div>
+                {effectiveDiscount > 0 && (
+                  <div className="flex items-center justify-between text-xs text-[#14532D]">
+                    <span>Diskaun Harga</span>
+                    <span className="font-mono-tabular font-semibold">
+                      - {formatMYR(effectiveDiscount)}
+                    </span>
+                  </div>
+                )}
                 <div className="pt-2 border-t border-[#DDE2DC] flex items-center justify-between">
                   <span className="text-sm font-semibold text-[#161B17]">Jumlah Perlu Dibayar</span>
                   <span className="font-mono-tabular text-lg font-bold text-[#14532D]">
@@ -1369,6 +1434,11 @@ export function BookingCalendarSection({
                       <span className="font-semibold text-[#14532D]">
                         {formatMYR(bookingSuccess.totalAmount)}
                       </span>
+                      {typeof bookingSuccess.discountAmount === 'number' && bookingSuccess.discountAmount > 0 && (
+                        <span className="block text-[10px] text-[#14532D]">
+                          Diskaun: - {formatMYR(bookingSuccess.discountAmount)}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -1562,6 +1632,11 @@ export function BookingCalendarSection({
                           <span className="font-mono-tabular font-bold text-[#14532D]">
                             {formatMYR(item.totalAmount)}
                           </span>
+                          {typeof item.discountAmount === 'number' && item.discountAmount > 0 && (
+                            <span className="block text-[10px] font-mono-tabular text-[#14532D]">
+                              Diskaun: - {formatMYR(item.discountAmount)}
+                            </span>
+                          )}
                         </div>
                       </div>
 

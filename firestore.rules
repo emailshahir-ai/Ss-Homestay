@@ -56,7 +56,7 @@ service cloud.firestore {
       && data.keys().hasOnly([
         'userId', 'unitType', 'guestName', 'phone', 'state',
         'checkIn', 'checkOut', 'accountNumber',
-        'nights', 'totalAmount', 'status', 'createdAt', 'updatedAt', 'accessKey'
+        'nights', 'discountAmount', 'totalAmount', 'status', 'createdAt', 'updatedAt', 'accessKey'
       ])
       && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128
       && data.unitType in ['homestay', 'roomstay']
@@ -70,7 +70,8 @@ service cloud.firestore {
       && data.accountNumber is string && data.accountNumber.size() >= 4 && data.accountNumber.size() <= 34
       && data.accountNumber.matches('^[0-9A-Za-z\\-\\s]{4,34}$')
       && data.nights is int && data.nights >= 1 && data.nights <= 60
-      && (data.totalAmount is int || data.totalAmount is float) && data.totalAmount > 0 && data.totalAmount <= 100000
+      && (!data.keys().hasAny(['discountAmount']) || ((data.discountAmount is int || data.discountAmount is float) && data.discountAmount >= 0 && data.discountAmount <= 100000))
+      && (data.totalAmount is int || data.totalAmount is float) && data.totalAmount >= 0 && data.totalAmount <= 100000
       && data.status in ['confirmed', 'cancelled']
       && data.createdAt is timestamp
       && data.updatedAt is timestamp;
