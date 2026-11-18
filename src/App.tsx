@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import {
   ADMIN_EMAIL,
   AvailabilitySlot,
@@ -173,18 +173,20 @@ function HomestayApp() {
     return () => unsubFeedback();
   }, []);
 
-  // Private bookings listener (strictly admin-only when auth is ready)
+  // Bookings listener: primary admin reads all bookings; any verified signed-in account reads its own bookings
   useEffect(() => {
     if (!authReady) return;
-    const isAdmin = Boolean(user && user.email === ADMIN_EMAIL && user.emailVerified);
-    if (!isAdmin) {
+    if (!user || !user.emailVerified) {
       setUserBookings([]);
       setBookingsLoading(false);
       return;
     }
 
+    const isPrimaryAdmin = user.email === ADMIN_EMAIL;
     setBookingsLoading(true);
-    const bookingsQuery = collection(db, 'bookings');
+    const bookingsQuery = isPrimaryAdmin
+      ? collection(db, 'bookings')
+      : query(collection(db, 'bookings'), where('userId', '==', user.uid));
 
     const unsubBookings = onSnapshot(
       bookingsQuery,

@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Calendar as CalendarIcon,
   CheckCircle2,
+  FileDown,
   FileSpreadsheet,
   Link2,
   RefreshCw,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Booking, SheetBookingRow, UNIT_RATES, UnitType } from '../types/homestay';
 import { formatDisplayDate, MALAY_MONTHS } from '../lib/dateUtils';
+import { downloadSheetBookingPdf } from '../lib/bookingPdf';
 import {
   appendBookingToSheet,
   extractSpreadsheetId,
@@ -446,7 +448,7 @@ export function GoogleSheetSyncPanel({
                 <th className="py-2.5 px-3 font-semibold whitespace-nowrap">Tarikh Masuk</th>
                 <th className="py-2.5 px-3 font-semibold whitespace-nowrap">Tarikh Keluar</th>
                 <th className="py-2.5 px-3 font-semibold whitespace-nowrap">Pilihan Menginap</th>
-                <th className="py-2.5 px-3 font-semibold text-right whitespace-nowrap">Kalendar</th>
+                <th className="py-2.5 px-3 font-semibold text-right whitespace-nowrap">Tindakan</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#EBEFEB] bg-white">
@@ -473,14 +475,25 @@ export function GoogleSheetSyncPanel({
                     </span>
                   </td>
                   <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                    <button
-                      type="button"
-                      onClick={() => onJumpToCalendarDate(row.checkIn, row.unitType)}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-[#14532D] hover:underline cursor-pointer"
-                    >
-                      <CalendarIcon className="w-3.5 h-3.5" />
-                      Lihat Bulan
-                    </button>
+                    <div className="inline-flex items-center justify-end gap-3">
+                      <button
+                        type="button"
+                        onClick={() => downloadSheetBookingPdf(row)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-[#DDE2DC] bg-[#F8F9F7] text-xs font-medium text-[#14532D] hover:bg-[#F1F7F3] hover:border-[#14532D] transition-colors cursor-pointer"
+                        title="Muat turun PDF slip tempahan"
+                      >
+                        <FileDown className="w-3.5 h-3.5" />
+                        PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onJumpToCalendarDate(row.checkIn, row.unitType)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-[#14532D] hover:underline cursor-pointer"
+                      >
+                        <CalendarIcon className="w-3.5 h-3.5" />
+                        Lihat Bulan
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

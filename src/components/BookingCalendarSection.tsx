@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertCircle,
+  FileDown,
   KeyRound,
   Lock,
   LogIn,
@@ -21,7 +22,6 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import {
-  ADMIN_EMAIL,
   AvailabilitySlot,
   Booking,
   MALAYSIA_STATES,
@@ -50,6 +50,7 @@ import {
   signOutUser,
 } from '../lib/firebase';
 import { verifyAdminPasswordSync } from '../lib/adminAuth';
+import { downloadBookingPdf, downloadCalendarSlotPdf } from '../lib/bookingPdf';
 import { HOMESTAY_DETAILS } from '../data/propertyData';
 import { GoogleSheetSyncPanel } from './GoogleSheetSyncPanel';
 
@@ -136,7 +137,7 @@ export function BookingCalendarSection({
   const [bookingSuccess, setBookingSuccess] = useState<Booking | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(false);
 
-  const isAdminUser = Boolean(user && user.email === ADMIN_EMAIL);
+  const isGoogleSignedIn = Boolean(user && user.emailVerified);
 
   // Keep calendar filter aligned when parent triggers Homestay/Roomstay selection
   const handleUnitChange = (unit: UnitType) => {
@@ -315,8 +316,8 @@ export function BookingCalendarSection({
     setVisitorClickNotice(null);
     setVerifyingAdmin(false);
 
-    // Call signInWithGoogle synchronously in the same click event if admin Google account isn't signed in yet
-    if (!user || user.email !== ADMIN_EMAIL) {
+    // Call signInWithGoogle synchronously in the same click event if no Google account is signed in yet
+    if (!user) {
       void handleGoogleSignIn();
     }
   };
@@ -327,12 +328,12 @@ export function BookingCalendarSection({
     setBookingSuccess(null);
 
     if (!adminUnlocked) {
-      setFormError('Akses tempahan dikunci. Sila masukkan kata laluan pentadbir terlebih dahulu.');
+      setFormError('Akses tempahan dikunci. Sila masukkan kata kunci terlebih dahulu.');
       return;
     }
 
-    if (!user || user.email !== ADMIN_EMAIL) {
-      setFormError(`Tempahan hanya dibenarkan untuk akaun pentadbir (${ADMIN_EMAIL}).`);
+    if (!user) {
+      setFormError('Kata kunci disahkan. Sila log masuk mana-mana akaun Google terlebih dahulu untuk menyimpan tempahan ke pangkalan data.');
       return;
     }
 
@@ -875,29 +876,57 @@ export function BookingCalendarSection({
                       <th className="py-2 px-3 font-medium">Penginapan</th>
                       <th className="py-2 px-3 font-medium">Tarikh Masuk</th>
                       <th className="py-2 px-3 font-medium">Tarikh Keluar</th>
-                      <th className="py-2 pl-3 font-medium text-right">Status</th>
+                      <th className="py-2 px-3 font-medium text-right">Status</th>
+                      {adminUnlocked && (
+                        <th className="py-2 pl-3 font-medium text-right">Slip</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EBEFEB]">
-                    {monthBookingsList.map((slot) => (
-                      <tr key={slot.id} className="text-[#161B17]">
-                        <td className="py-2.5 pr-3 font-semibold text-[#161B17]">
-                          {slot.guestName || 'Tetamu Berdaftar'}
-                        </td>
-                        <td className="py-2.5 px-3 font-medium text-[#525C54]">
-                          {UNIT_RATES[slot.unitType].label}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono-tabular">
-                          {formatDisplayDate(slot.checkIn)}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono-tabular">
-                          {formatDisplayDate(slot.checkOut)}
-                        </td>
-                        <td className="py-2.5 pl-3 text-right font-medium text-red-700">
-                          Ditempah
-                        </td>
-                      </tr>
-                    ))}
+                    {monthBookingsList.map((slot) => {
+                      const matchedBooking = userBookings.find((b) => b.id === slot.bookingId);
+                      const matchedSheet = sheetRows.find(
+                        (r) =>
+                          r.unitType === slot.unitType &&
+                          r.checkIn === slot.checkIn &&
+                          r.checkOut === slot.checkOut
+                      );
+
+                      return (
+                        <tr key={slot.id} className="text-[#161B17]">
+                          <td className="py-2.5 pr-3 font-semibold text-[#161B17]">
+                            {slot.guestName || 'Tetamu Berdaftar'}
+                          </td>
+                          <td className="py-2.5 px-3 font-medium text-[#525C54]">
+                            {UNIT_RATES[slot.unitType].label}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono-tabular">
+                            {formatDisplayDate(slot.checkIn)}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono-tabular">
+                            {formatDisplayDate(slot.checkOut)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-medium text-red-700">
+                            Ditempah
+                          </td>
+                          {adminUnlocked && (
+                            <td className="py-2.5 pl-3 text-right whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadCalendarSlotPdf(slot, matchedBooking, matchedSheet)
+                                }
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-[#DDE2DC] bg-[#F8F9F7] text-[#14532D] font-medium hover:bg-[#F1F7F3] hover:border-[#14532D] transition-colors cursor-pointer"
+                                title="Muat turun PDF slip tempahan ini"
+                              >
+                                <FileDown className="w-3.5 h-3.5" />
+                                PDF
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1047,12 +1076,10 @@ export function BookingCalendarSection({
 
               {rightTab === 'form' ? (
                 <form onSubmit={handleSubmitBooking} className="space-y-4">
-                  {!isAdminUser ? (
+                  {!isGoogleSignedIn ? (
                     <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 space-y-2.5">
                       <p className="text-xs text-amber-950 leading-relaxed">
-                        {user
-                          ? `Akaun Google semasa (${user.email}) bukan akaun pentadbir. Sila log masuk akaun pentadbir (${ADMIN_EMAIL}) untuk menyimpan tempahan ke pangkalan data.`
-                          : `Kata kunci admin disahkan. Sila log masuk akaun Google pentadbir (${ADMIN_EMAIL}) untuk menyimpan tempahan ke pangkalan data.`}
+                        Kata kunci disahkan. Sila log masuk dengan mana-mana akaun Google untuk menyimpan tempahan ke pangkalan data.
                       </p>
                       <button
                         type="button"
@@ -1061,15 +1088,15 @@ export function BookingCalendarSection({
                         className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#14532D] text-white text-xs font-semibold hover:bg-[#166534] transition-colors cursor-pointer disabled:opacity-50"
                       >
                         <LogIn className="w-3.5 h-3.5" />
-                        {authLoading ? 'Menyambung...' : 'Log Masuk Google Admin'}
+                        {authLoading ? 'Menyambung...' : 'Log Masuk Akaun Google'}
                       </button>
                     </div>
                   ) : (
                     <div className="flex items-center justify-between text-xs text-[#525C54] pb-1">
                       <span>
-                        Mod Pentadbir: <strong className="text-[#161B17]">{user?.email}</strong>
+                        Akaun Aktif: <strong className="text-[#161B17]">{user?.email}</strong>
                       </span>
-                      <span className="font-medium text-[#14532D]">Admin Disahkan</span>
+                      <span className="font-medium text-[#14532D]">Kata Kunci Disahkan</span>
                     </div>
                   )}
 
@@ -1290,6 +1317,16 @@ export function BookingCalendarSection({
                       </span>
                     </div>
                   </div>
+                  <div className="pt-2 border-t border-[#C6DEC9] flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => downloadBookingPdf(bookingSuccess)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#14532D] text-white text-xs font-semibold hover:bg-[#166534] transition-colors cursor-pointer"
+                    >
+                      <FileDown className="w-3.5 h-3.5" />
+                      Muat Turun PDF Slip Tempahan
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -1398,8 +1435,17 @@ export function BookingCalendarSection({
                         </div>
                       </div>
 
-                      {item.status === 'confirmed' && (
-                        <div className="pt-1 flex justify-end">
+                      <div className="pt-2 border-t border-[#EBEFEB] flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => downloadBookingPdf(item)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#14532D] bg-white text-xs font-semibold text-[#14532D] hover:bg-[#F1F7F3] transition-colors cursor-pointer"
+                        >
+                          <FileDown className="w-3.5 h-3.5" />
+                          Muat Turun PDF
+                        </button>
+
+                        {item.status === 'confirmed' && (
                           <button
                             type="button"
                             disabled={cancellingId === item.id}
@@ -1409,8 +1455,8 @@ export function BookingCalendarSection({
                             <Trash2 className="w-3.5 h-3.5" />
                             {cancellingId === item.id ? 'Membatalkan...' : 'Batalkan Tempahan'}
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
