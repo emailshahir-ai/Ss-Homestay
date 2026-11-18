@@ -110,6 +110,22 @@ service cloud.firestore {
       && data.createdAt is timestamp;
     }
 
+    // Validation Blueprint: AppSetting
+    function isValidAppSetting(data) {
+      return data.keys().hasAll([
+        'webhookUrl', 'sheetLabel', 'accessKey', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'webhookUrl', 'sheetLabel', 'accessKey', 'createdAt', 'updatedAt'
+      ])
+      && data.webhookUrl is string && data.webhookUrl.size() >= 45 && data.webhookUrl.size() <= 400
+      && data.webhookUrl.matches('^https://script\\.google\\.com/macros/s/[a-zA-Z0-9_\\-]+/exec$')
+      && data.sheetLabel is string && data.sheetLabel.size() >= 1 && data.sheetLabel.size() <= 100
+      && isExpectedAccessKey(data.accessKey)
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
     // Bookings Collection (Passcode-Authorized Without Account Login + Primary Admin Override)
     match /bookings/{bookingId} {
       allow get: if isValidId(bookingId) && (isAdmin() || hasValidAccessKey(existing()));
@@ -195,6 +211,30 @@ service cloud.firestore {
       allow delete: if isValidId(feedbackId) && isSignedIn() && (
         existing().userId == request.auth.uid || isAdmin()
       );
+    }
+
+    // Passcode-Protected App Settings (e.g. Google Sheet Apps Script Web App URL)
+    match /app_settings/{settingId} {
+      allow get: if isValidId(settingId) && (isAdmin() || hasValidAccessKey(existing()));
+      allow list: if isAdmin() || hasValidAccessKey(existing());
+      allow create: if isValidId(settingId)
+        && isValidAppSetting(incoming())
+        && (isAdmin() || hasValidAccessKey(incoming()))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(settingId)
+        && isValidAppSetting(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            hasValidAccessKey(existing())
+            && incoming().accessKey == existing().accessKey
+            && incoming().diff(existing()).affectedKeys().hasOnly(['webhookUrl', 'sheetLabel', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(settingId) && (isAdmin() || hasValidAccessKey(existing()));
     }
 
     // Health check doc for connection test

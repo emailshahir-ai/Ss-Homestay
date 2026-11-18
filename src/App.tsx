@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
 import {
   ADMIN_EMAIL,
   AvailabilitySlot,
@@ -19,7 +29,13 @@ import {
   OperationType,
   testConnection,
 } from './lib/firebase';
-import { ATTACHED_SHEET_CSV_URL, parseCsvText } from './lib/googleSheets';
+import {
+  ATTACHED_SHEET_CSV_URL,
+  DEFAULT_APPS_SCRIPT_URL,
+  fetchWebhookSheetRows,
+  LEGACY_DEFAULT_APPS_SCRIPT_URL,
+  parseCsvText,
+} from './lib/googleSheets';
 import { HERO_IMAGE, HOMESTAY_DETAILS, ROOMSTAY_DETAILS } from './data/propertyData';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MAIN_MENU_ITEMS, Navbar } from './components/Navbar';
@@ -55,12 +71,14 @@ function HomestayApp() {
   const [adminUnlocked, setAdminUnlocked] = useState<boolean>(false);
   const [bookingAccessKey, setBookingAccessKey] = useState<string | null>(null);
 
-  // Google Sheet CSV & Live Sheet states
+  // Google Sheet CSV, Apps Script Webhook & Live OAuth Sheet states
   const [csvRows, setCsvRows] = useState<SheetBookingRow[]>([]);
   const [sheetRows, setSheetRows] = useState<SheetBookingRow[]>([]);
-  const [sheetSourceMode, setSheetSourceMode] = useState<'csv' | 'live-sheet'>('csv');
+  const [sheetSourceMode, setSheetSourceMode] = useState<'csv' | 'live-sheet' | 'apps-script'>('csv');
   const [sheetLoading, setSheetLoading] = useState<boolean>(true);
   const [sheetsAccessToken, setSheetsAccessToken] = useState<string | null>(null);
+  const [sheetsWebhookUrl, setSheetsWebhookUrl] = useState<string | null>(DEFAULT_APPS_SCRIPT_URL);
+  const [hasExistingWebhookDoc, setHasExistingWebhookDoc] = useState<boolean>(false);
   const [connectedSheetInfo, setConnectedSheetInfo] = useState<{
     spreadsheetId: string;
     spreadsheetTitle: string;
@@ -85,27 +103,42 @@ function HomestayApp() {
     return () => unsubAuth();
   }, []);
 
-  // Load attached Google Sheet CSV snapshot on initial boot
+  // Load live Google Sheet via default Apps Script URL (fallback to attached CSV snapshot)
   useEffect(() => {
     let active = true;
     setSheetLoading(true);
-    fetch(ATTACHED_SHEET_CSV_URL)
-      .then((res) => {
-        if (!res.ok) throw new Error('Gagal memuatkan fail CSV Google Sheet.');
-        return res.text();
-      })
-      .then((text) => {
-        if (!active) return;
-        const parsed = parseCsvText(text);
-        setCsvRows(parsed);
-        setSheetRows(parsed);
-      })
-      .catch((err) => {
+
+    const loadInitial = async () => {
+      try {
+        const csvRes = await fetch(ATTACHED_SHEET_CSV_URL);
+        if (csvRes.ok && active) {
+          const parsed = parseCsvText(await csvRes.text());
+          setCsvRows(parsed);
+          setSheetRows(parsed);
+        }
+      } catch (err) {
         console.error('Gagal membaca CSV lampiran:', err);
-      })
-      .finally(() => {
+      }
+
+      try {
+        const liveRes = await fetchWebhookSheetRows(DEFAULT_APPS_SCRIPT_URL);
+        if (active) {
+          setSheetRows(liveRes.rows);
+          setSheetSourceMode('apps-script');
+          setConnectedSheetInfo({
+            spreadsheetId: 'apps-script',
+            spreadsheetTitle: liveRes.title,
+            tabTitle: liveRes.tab,
+          });
+        }
+      } catch (err) {
+        console.warn('Gagal memuatkan Google Sheet langsung pada permulaan, menggunakan CSV:', err);
+      } finally {
         if (active) setSheetLoading(false);
-      });
+      }
+    };
+
+    void loadInitial();
     return () => {
       active = false;
     };
@@ -226,6 +259,66 @@ function HomestayApp() {
     return () => unsubBookings();
   }, [authReady, user, adminUnlocked, bookingAccessKey]);
 
+  // Persistent Google Sheet Apps Script Web App setting listener (admin passcode protected)
+  useEffect(() => {
+    if (!authReady) return;
+    const isPrimaryAdmin = Boolean(user && user.email === ADMIN_EMAIL && user.emailVerified);
+    if (!isPrimaryAdmin && (!adminUnlocked || !bookingAccessKey)) {
+      setHasExistingWebhookDoc(false);
+      return;
+    }
+
+    const settingsQuery = isPrimaryAdmin
+      ? collection(db, 'app_settings')
+      : query(collection(db, 'app_settings'), where('accessKey', '==', bookingAccessKey));
+
+    const unsubSettings = onSnapshot(
+      settingsQuery,
+      (snapshot) => {
+        const gsDoc = snapshot.docs.find((d) => d.id === 'google_sheet');
+        if (!gsDoc) {
+          setHasExistingWebhookDoc(false);
+          return;
+        }
+        const data = gsDoc.data();
+        const storedUrl = typeof data.webhookUrl === 'string' ? data.webhookUrl : '';
+        const effectiveUrl =
+          storedUrl === LEGACY_DEFAULT_APPS_SCRIPT_URL ? DEFAULT_APPS_SCRIPT_URL : storedUrl;
+        const label =
+          typeof data.sheetLabel === 'string' ? data.sheetLabel : 'SISTEM BOOKING AI STUDIO';
+        setHasExistingWebhookDoc(Boolean(effectiveUrl));
+        if (storedUrl === LEGACY_DEFAULT_APPS_SCRIPT_URL) {
+          void updateDoc(doc(db, 'app_settings', 'google_sheet'), {
+            webhookUrl: DEFAULT_APPS_SCRIPT_URL,
+            sheetLabel: 'SISTEM BOOKING AI STUDIO',
+            updatedAt: serverTimestamp(),
+          }).catch(() => {});
+        }
+        if (effectiveUrl) {
+          setSheetsWebhookUrl(effectiveUrl);
+          fetchWebhookSheetRows(effectiveUrl)
+            .then((res) => {
+              setSheetRows(res.rows);
+              setSheetSourceMode('apps-script');
+              setConnectedSheetInfo({
+                spreadsheetId: 'apps-script',
+                spreadsheetTitle: res.title || label,
+                tabTitle: res.tab || 'Form Responses 1',
+              });
+            })
+            .catch((err) => {
+              console.warn('Gagal menyelaraskan Apps Script Google Sheet secara automatik:', err);
+            });
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'app_settings');
+      }
+    );
+
+    return () => unsubSettings();
+  }, [authReady, user, adminUnlocked, bookingAccessKey]);
+
   // Merge Firestore availability slots with synced Google Sheet rows (deduplicated)
   const mergedAvailabilitySlots = useMemo<AvailabilitySlot[]>(() => {
     const bookingNameById = new Map<string, string>();
@@ -284,6 +377,58 @@ function HomestayApp() {
     setSheetRows(rows);
     setSheetSourceMode('live-sheet');
     setConnectedSheetInfo({ spreadsheetId, spreadsheetTitle, tabTitle });
+  };
+
+  const handleAppsScriptRowsLoaded = (
+    rows: SheetBookingRow[],
+    spreadsheetTitle: string,
+    tabTitle: string
+  ) => {
+    setSheetRows(rows);
+    setSheetSourceMode('apps-script');
+    setConnectedSheetInfo({
+      spreadsheetId: 'apps-script',
+      spreadsheetTitle,
+      tabTitle,
+    });
+  };
+
+  const handleSaveWebhookUrl = async (webhookUrl: string, sheetLabel: string) => {
+    if (!bookingAccessKey) {
+      throw new Error('Sila masukkan kata kunci admin terlebih dahulu.');
+    }
+    const settingRef = doc(db, 'app_settings', 'google_sheet');
+    if (hasExistingWebhookDoc) {
+      await updateDoc(settingRef, {
+        webhookUrl,
+        sheetLabel,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await setDoc(settingRef, {
+        webhookUrl,
+        sheetLabel,
+        accessKey: bookingAccessKey,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  };
+
+  const handleClearWebhookUrl = async () => {
+    if (!hasExistingWebhookDoc) {
+      setSheetsWebhookUrl(null);
+      setSheetRows(csvRows);
+      setSheetSourceMode('csv');
+      setConnectedSheetInfo(null);
+      return;
+    }
+    await deleteDoc(doc(db, 'app_settings', 'google_sheet'));
+    setSheetsWebhookUrl(null);
+    setHasExistingWebhookDoc(false);
+    setSheetRows(csvRows);
+    setSheetSourceMode('csv');
+    setConnectedSheetInfo(null);
   };
 
   const handleResetToCsv = () => {
@@ -420,8 +565,12 @@ function HomestayApp() {
           sheetSourceMode={sheetSourceMode}
           sheetLoading={sheetLoading}
           sheetsAccessToken={sheetsAccessToken}
+          sheetsWebhookUrl={sheetsWebhookUrl}
           onSheetsTokenObtained={setSheetsAccessToken}
           onLiveRowsLoaded={handleLiveRowsLoaded}
+          onAppsScriptRowsLoaded={handleAppsScriptRowsLoaded}
+          onSaveWebhookUrl={handleSaveWebhookUrl}
+          onClearWebhookUrl={handleClearWebhookUrl}
           onResetToCsv={handleResetToCsv}
           connectedSheetInfo={connectedSheetInfo}
         />

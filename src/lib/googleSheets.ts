@@ -1,6 +1,12 @@
 import { SheetBookingRow, UnitType } from '../types/homestay';
 
-export const ATTACHED_SHEET_CSV_URL = '/assets/aistudio/SISTEM_BOOKING__Responses__b39c7d1f';
+export const ATTACHED_SHEET_CSV_URL = '/assets/aistudio/SISTEM_BOOKING__Responses__d1144951';
+
+export const LEGACY_DEFAULT_APPS_SCRIPT_URL =
+  'https://script.google.com/macros/s/AKfycbzBgO6lg7Dm9rIyaqyaVHnDcmzDU1N3iBod8sKZxePTH2OUDbJIAvafFj_F2tKchGy1bA/exec';
+
+export const DEFAULT_APPS_SCRIPT_URL =
+  'https://script.google.com/macros/s/AKfycbzoS8cGRzzGvn8oapem_PwUSbJSS_6YBvcKR07VMQ2568WnSMmlW83GfRBghoX0f2U/exec';
 
 export function extractSpreadsheetId(input: string): string | null {
   const trimmed = input.trim();
@@ -12,8 +18,8 @@ export function extractSpreadsheetId(input: string): string | null {
 }
 
 /**
- * Parses Google Sheet / Google Forms date formats into YYYY-MM-DD.
- * Supports M/D/YYYY (e.g. 1/2/2026, 10/12/2026) and YYYY-MM-DD.
+ * Parses Google Sheet / Google Forms / Apps Script date formats into YYYY-MM-DD.
+ * Supports ISO UTC timestamps (converted to Asia/Kuala_Lumpur UTC+8), M/D/YYYY, and YYYY-MM-DD.
  */
 export function parseSheetDate(raw: string): string | null {
   const val = raw.trim();
@@ -21,6 +27,24 @@ export function parseSheetDate(raw: string): string | null {
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
     return val;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(val)) {
+    const d = new Date(val);
+    if (!Number.isNaN(d.getTime())) {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kuala_Lumpur',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(d);
+      const y = parts.find((p) => p.type === 'year')?.value;
+      const m = parts.find((p) => p.type === 'month')?.value;
+      const day = parts.find((p) => p.type === 'day')?.value;
+      if (y && m && day) {
+        return `${y}-${m}-${day}`;
+      }
+    }
   }
 
   const slashMatch = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -157,6 +181,9 @@ export async function fetchSpreadsheetMetadata(
   );
 
   if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error('Sesi kebenaran Google Sheets telah tamat. Sila klik "Sign in with Google" semula.');
+    }
     const errBody = await res.json().catch(() => ({}));
     const msg = errBody?.error?.message || `Ralat HTTP ${res.status} semasa membaca Google Sheet.`;
     throw new Error(msg);
@@ -174,12 +201,16 @@ export async function fetchSpreadsheetMetadata(
   };
 }
 
+function formatA1SheetTitle(sheetTitle: string): string {
+  return `'${sheetTitle.replace(/'/g, "''")}'`;
+}
+
 export async function fetchSheetBookingRows(
   spreadsheetId: string,
   sheetTitle: string,
   accessToken: string
 ): Promise<SheetBookingRow[]> {
-  const range = `${sheetTitle}!A1:Z1000`;
+  const range = `${formatA1SheetTitle(sheetTitle)}!A1:Z1000`;
   const res = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
       spreadsheetId
@@ -190,6 +221,9 @@ export async function fetchSheetBookingRows(
   );
 
   if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error('Sesi kebenaran Google Sheets telah tamat. Sila klik "Sign in with Google" semula.');
+    }
     const errBody = await res.json().catch(() => ({}));
     const msg = errBody?.error?.message || `Ralat HTTP ${res.status} semasa memuatkan baris Google Sheet.`;
     throw new Error(msg);
@@ -226,7 +260,7 @@ export async function appendBookingToSheet(
     unitType: UnitType;
   }
 ): Promise<void> {
-  const range = `${sheetTitle}!A:F`;
+  const range = `${formatA1SheetTitle(sheetTitle)}!A:F`;
   const values = [
     [
       formatNowSheetTimestamp(),
@@ -253,8 +287,300 @@ export async function appendBookingToSheet(
   );
 
   if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error('Sesi kebenaran Google Sheets telah tamat. Sila klik "Sign in with Google" semula.');
+    }
     const errBody = await res.json().catch(() => ({}));
     const msg = errBody?.error?.message || `Gagal menambah baris ke Google Sheet (HTTP ${res.status}).`;
     throw new Error(msg);
   }
 }
+
+export const APPS_SCRIPT_REGEX =
+  /^https:\/\/script\.google\.com\/macros\/s\/[a-zA-Z0-9_-]+\/exec$/;
+
+export function isValidAppsScriptUrl(input: string): boolean {
+  return APPS_SCRIPT_REGEX.test(input.trim());
+}
+
+export const APPS_SCRIPT_TEMPLATE = `function doGet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheets()[0];
+  var values = sheet.getDataRange().getDisplayValues();
+  return ContentService
+    .createTextOutput(JSON.stringify({
+      ok: true,
+      title: ss.getName(),
+      tab: sheet.getName(),
+      values: values
+    }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  try {
+    var data = {};
+    if (e && e.postData && e.postData.contents) {
+      try {
+        data = JSON.parse(e.postData.contents);
+      } catch (jsonErr) {
+        data = {};
+      }
+    }
+    var params = (e && e.parameter) ? e.parameter : {};
+    var nama = data.nama || data.name || params.nama || params.name || '';
+    var telefon = data.telefon || data.phone || params.telefon || params.phone || '-';
+    var masuk = data.masuk || data.checkIn || params.masuk || params.checkIn || '';
+    var keluar = data.keluar || data.checkOut || params.keluar || params.checkOut || '';
+    var pilihan = data.pilihan || data.choice || params.pilihan || params.choice || 'H';
+    var ts = data.timestamp || params.timestamp || Utilities.formatDate(new Date(), 'Asia/Kuala_Lumpur', 'M/d/yyyy HH:mm:ss');
+
+    if (!nama || !masuk || !keluar) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: false, error: 'Data tempahan tidak lengkap.' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheets()[0];
+    sheet.appendRow([ts, nama, telefon, masuk, keluar, pilihan]);
+    SpreadsheetApp.flush();
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+
+function parseWebhookObjectRows(items: Array<Record<string, unknown>>): SheetBookingRow[] {
+  const parsed: SheetBookingRow[] = [];
+
+  items.forEach((item, idx) => {
+    const timestamp = String(item.timestamp ?? item.Timestamp ?? '—').trim();
+    const name = String(item.nama ?? item.NAMA ?? item.name ?? item.Name ?? '').trim();
+    const phoneRaw = item.telefon ?? item.TELEFON ?? item['no. telefon'] ?? item.phone ?? '';
+    const phone = String(phoneRaw).trim();
+    const rawIn = String(item.masuk ?? item.MASUK ?? item['tarikh masuk'] ?? item.checkIn ?? '').trim();
+    const rawOut = String(item.keluar ?? item.KELUAR ?? item['tarikh keluar'] ?? item.checkOut ?? '').trim();
+    const rawChoice = String(
+      item.pilihan ?? item.PILIHAN ?? item['pilihan menginap'] ?? item.choice ?? item.unitType ?? ''
+    ).trim();
+
+    const checkIn = parseSheetDate(rawIn);
+    const checkOut = parseSheetDate(rawOut);
+    const unitType = parseStayChoice(rawChoice);
+
+    if (!name || !checkIn || !checkOut || !unitType || checkOut <= checkIn) {
+      return;
+    }
+
+    parsed.push({
+      id: `sheet_live_${idx + 1}_${checkIn}_${unitType}`,
+      timestamp: timestamp || '—',
+      name,
+      phone: phone || '—',
+      checkIn,
+      checkOut,
+      unitType,
+      rawChoice: rawChoice.toUpperCase() || (unitType === 'homestay' ? 'H' : 'R'),
+      source: 'live-sheet',
+    });
+  });
+
+  return parsed;
+}
+
+export async function fetchWebhookSheetRows(
+  webhookUrl: string
+): Promise<{ title: string; tab: string; rows: SheetBookingRow[] }> {
+  const cleanUrl = webhookUrl.trim();
+  if (!isValidAppsScriptUrl(cleanUrl)) {
+    throw new Error('Pautan Apps Script Web App tidak sah. Mesti bermula dengan https://script.google.com/macros/s/.../exec');
+  }
+
+  const separator = cleanUrl.includes('?') ? '&' : '?';
+  const bustUrl = `${cleanUrl}${separator}_ts=${Date.now()}`;
+  const res = await fetch(bustUrl, { method: 'GET', cache: 'no-store' });
+  if (!res.ok) {
+    throw new Error(`Gagal membaca data Apps Script (HTTP ${res.status}). Pastikan akses Web App ditetapkan kepada "Anyone".`);
+  }
+
+  const json = await res.json().catch(() => null);
+  if (!json) {
+    throw new Error('Format respons Apps Script tidak sah (bukan JSON).');
+  }
+
+  // Case 1: { values: [[...], [...]] } or [[...], [...]]
+  if (Array.isArray(json?.values) || (Array.isArray(json) && Array.isArray(json[0]))) {
+    const values: string[][] = Array.isArray(json?.values) ? json.values : json;
+    return {
+      title: typeof json?.title === 'string' && json.title ? json.title : 'SISTEM BOOKING (Responses)',
+      tab: typeof json?.tab === 'string' && json.tab ? json.tab : 'Form Responses 1',
+      rows: parseSheetValues(values, 'live-sheet'),
+    };
+  }
+
+  // Case 2: Array of row objects [{ nama, telefon, masuk, keluar, pilihan }, ...]
+  const objectItems: Array<Record<string, unknown>> | null = Array.isArray(json)
+    ? json
+    : Array.isArray(json?.data)
+    ? json.data
+    : Array.isArray(json?.rows)
+    ? json.rows
+    : null;
+
+  if (objectItems) {
+    return {
+      title: typeof json?.title === 'string' && json.title ? json.title : 'SISTEM BOOKING (Responses)',
+      tab: typeof json?.tab === 'string' && json.tab ? json.tab : 'Form Responses 1',
+      rows: parseWebhookObjectRows(objectItems),
+    };
+  }
+
+  throw new Error('Format respons Apps Script tidak dikenali.');
+}
+
+function matchesBookingInRows(
+  rows: SheetBookingRow[],
+  payload: {
+    name: string;
+    checkIn: string;
+    checkOut: string;
+    unitType: UnitType;
+  }
+): boolean {
+  const targetName = payload.name.trim().toLowerCase();
+  return rows.some(
+    (r) =>
+      r.unitType === payload.unitType &&
+      r.checkIn === payload.checkIn &&
+      r.checkOut === payload.checkOut &&
+      r.name.trim().toLowerCase() === targetName
+  );
+}
+
+export interface WebhookAppendResult {
+  verified: boolean;
+  title: string;
+  tab: string;
+  rows: SheetBookingRow[];
+}
+
+export async function appendBookingToWebhook(
+  webhookUrl: string,
+  payload: {
+    name: string;
+    phone: string;
+    checkIn: string;
+    checkOut: string;
+    unitType: UnitType;
+  }
+): Promise<WebhookAppendResult> {
+  const cleanUrl = webhookUrl.trim();
+  if (!isValidAppsScriptUrl(cleanUrl)) {
+    throw new Error('Pautan Apps Script Web App tidak sah.');
+  }
+
+  const timestamp = formatNowSheetTimestamp();
+  const slashCheckIn = toSheetSlashDate(payload.checkIn);
+  const slashCheckOut = toSheetSlashDate(payload.checkOut);
+  const choiceCode = payload.unitType === 'homestay' ? 'H' : 'R';
+  const cleanPhone = payload.phone || '-';
+
+  const bodyFields = {
+    timestamp,
+    nama: payload.name,
+    telefon: cleanPhone,
+    masuk: slashCheckIn,
+    keluar: slashCheckOut,
+    pilihan: choiceCode,
+    name: payload.name,
+    phone: cleanPhone,
+    checkIn: slashCheckIn,
+    checkOut: slashCheckOut,
+    choice: choiceCode,
+  };
+
+  // Send fields both as URL query parameters (e.parameter) and JSON text/plain body (e.postData.contents)
+  const queryParams = new URLSearchParams(bodyFields);
+  const separator = cleanUrl.includes('?') ? '&' : '?';
+  const postUrl = `${cleanUrl}${separator}${queryParams.toString()}`;
+
+  let postNetworkOrCorsError: Error | null = null;
+  let postErrorMessage: string | null = null;
+  let missingDoPostDetected = false;
+
+  try {
+    const res = await fetch(postUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify(bodyFields),
+    });
+
+    const rawText = await res.text().catch(() => '');
+    if (rawText.includes('Script function not found: doPost')) {
+      missingDoPostDetected = true;
+    } else if (!res.ok) {
+      postErrorMessage = `Gagal menghantar tempahan ke Apps Script (HTTP ${res.status}).`;
+    } else if (rawText.trim().startsWith('{')) {
+      const parsed = JSON.parse(rawText) as { ok?: boolean; error?: string; status?: string };
+      if (parsed.ok === false || parsed.status === 'error') {
+        postErrorMessage = parsed.error || 'Apps Script memulangkan ralat semasa menambah baris.';
+      }
+    }
+  } catch (err) {
+    postNetworkOrCorsError = err instanceof Error ? err : new Error('Gagal berhubung dengan Apps Script (POST).');
+    // Brief wait in case Apps Script wrote the row before an opaque redirect lacked CORS headers
+    await new Promise((resolve) => setTimeout(resolve, 650));
+  }
+
+  // Verify ground truth by reading live rows back from the Google Sheet
+  let refreshed: { title: string; tab: string; rows: SheetBookingRow[] } | null = null;
+  try {
+    refreshed = await fetchWebhookSheetRows(cleanUrl);
+  } catch {
+    refreshed = null;
+  }
+
+  if (refreshed && matchesBookingInRows(refreshed.rows, payload)) {
+    return {
+      verified: true,
+      title: refreshed.title,
+      tab: refreshed.tab,
+      rows: refreshed.rows,
+    };
+  }
+
+  if (missingDoPostDetected) {
+    throw new Error(
+      'Web App Apps Script ini belum mempunyai fungsi doPost(e) untuk menulis baris baharu. Buka kod panduan di bawah, salin fungsi doGet + doPost, dan klik Deploy → New deployment (Anyone).'
+    );
+  }
+
+  if (postErrorMessage) {
+    throw new Error(postErrorMessage);
+  }
+
+  if (postNetworkOrCorsError && refreshed) {
+    throw new Error(
+      'Rekod tidak dapat disimpan ke Google Sheet. Pautan Apps Script semasa berjaya dibaca (GET), tetapi permintaan menulis (POST / doPost) disekat atau fungsi doPost(e) tiada dalam deployment ini. Sila salin kod lengkap (doGet + doPost) di panel bawah dan klik Deploy → New deployment.'
+    );
+  }
+
+  if (postNetworkOrCorsError) {
+    throw new Error(
+      'Gagal menyambung ke Apps Script Web App untuk menyimpan data. Pastikan akses Web App ditetapkan kepada "Anyone" dan mengandungi fungsi doPost(e).'
+    );
+  }
+
+  throw new Error(
+    'Permintaan dihantar, tetapi baris baharu tidak kelihatan dalam Google Sheet selepas semakan semula. Pastikan fungsi doPost(e) dalam Apps Script menulis ke helaian pertama (getSheets()[0]) dengan susunan 6 lajur yang betul dan sudah dibuat New deployment.'
+  );
+}
+

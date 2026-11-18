@@ -205,6 +205,50 @@
         "comment",
         "createdAt"
       ]
+    },
+    "AppSetting": {
+      "title": "AppSetting",
+      "description": "Passcode-protected application configuration such as Google Apps Script Web App webhook URL.",
+      "type": "object",
+      "properties": {
+        "webhookUrl": {
+          "type": "string",
+          "minLength": 45,
+          "maxLength": 400,
+          "pattern": "^https://script\\.google\\.com/macros/s/[a-zA-Z0-9_\\-]+/exec$",
+          "description": "Google Apps Script Web App URL for password-only Google Sheet sync."
+        },
+        "sheetLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Display label for the connected Google Sheet."
+        },
+        "accessKey": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Passcode-derived access key hash authorizing admin settings."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when setting was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when setting was last updated."
+        }
+      },
+      "required": [
+        "webhookUrl",
+        "sheetLabel",
+        "accessKey",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -219,6 +263,10 @@
     "/feedbacks/{feedbackId}": {
       "schema": { "$ref": "#/entities/Feedback" },
       "description": "Guest testimonials and feedback for Ss Homestay and Roomstay."
+    },
+    "/app_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/AppSetting" },
+      "description": "Admin-protected configuration for persistent Google Sheet Apps Script integration."
     }
   }
 }

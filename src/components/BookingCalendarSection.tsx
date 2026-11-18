@@ -6,10 +6,12 @@ import {
   ChevronRight,
   AlertCircle,
   FileDown,
+  FileSpreadsheet,
   KeyRound,
   Lock,
   LogOut,
   MessageCircle,
+  Send,
   Trash2,
   XCircle,
 } from 'lucide-react';
@@ -48,6 +50,7 @@ import {
 } from '../lib/firebase';
 import { deriveBookingAccessKeySync, verifyAdminPasswordSync } from '../lib/adminAuth';
 import { downloadBookingPdf, downloadCalendarSlotPdf } from '../lib/bookingPdf';
+import { appendBookingToWebhook } from '../lib/googleSheets';
 import { HOMESTAY_DETAILS } from '../data/propertyData';
 import { GoogleSheetSyncPanel } from './GoogleSheetSyncPanel';
 
@@ -65,9 +68,10 @@ interface BookingCalendarSectionProps {
   selectedUnit: UnitType;
   onSelectUnit: (unit: UnitType) => void;
   sheetRows: SheetBookingRow[];
-  sheetSourceMode: 'csv' | 'live-sheet';
+  sheetSourceMode: 'csv' | 'live-sheet' | 'apps-script';
   sheetLoading: boolean;
   sheetsAccessToken: string | null;
+  sheetsWebhookUrl: string | null;
   onSheetsTokenObtained: (token: string) => void;
   onLiveRowsLoaded: (
     rows: SheetBookingRow[],
@@ -75,6 +79,13 @@ interface BookingCalendarSectionProps {
     spreadsheetTitle: string,
     tabTitle: string
   ) => void;
+  onAppsScriptRowsLoaded: (
+    rows: SheetBookingRow[],
+    spreadsheetTitle: string,
+    tabTitle: string
+  ) => void;
+  onSaveWebhookUrl: (webhookUrl: string, sheetLabel: string) => Promise<void>;
+  onClearWebhookUrl: () => Promise<void>;
   onResetToCsv: () => void;
   connectedSheetInfo: {
     spreadsheetId: string;
@@ -103,8 +114,12 @@ export function BookingCalendarSection({
   sheetSourceMode,
   sheetLoading,
   sheetsAccessToken,
+  sheetsWebhookUrl,
   onSheetsTokenObtained,
   onLiveRowsLoaded,
+  onAppsScriptRowsLoaded,
+  onSaveWebhookUrl,
+  onClearWebhookUrl,
   onResetToCsv,
   connectedSheetInfo,
 }: BookingCalendarSectionProps) {
@@ -129,11 +144,94 @@ export function BookingCalendarSection({
   const [checkIn, setCheckIn] = useState<string>('');
   const [checkOut, setCheckOut] = useState<string>('');
   const [accountNumber, setAccountNumber] = useState<string>('');
+  const [autoSyncWebhook, setAutoSyncWebhook] = useState<boolean>(true);
 
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState<Booking | null>(null);
+
+  // Google Sheet append modal / guide coordination
+  const [pendingSheetBooking, setPendingSheetBooking] = useState<Booking | null>(null);
+  const [syncedSheetBookingIds, setSyncedSheetBookingIds] = useState<string[]>([]);
+  const [sheetGuideNotice, setSheetGuideNotice] = useState<string | null>(null);
+  const [sendingWebhookBookingId, setSendingWebhookBookingId] = useState<string | null>(null);
+  const [webhookSyncError, setWebhookSyncError] = useState<string | null>(null);
+  const [openScriptGuideSignal, setOpenScriptGuideSignal] = useState<number>(0);
+
+  const isOAuthSheetConnected = Boolean(
+    sheetsAccessToken && connectedSheetInfo && sheetSourceMode === 'live-sheet'
+  );
+  const isWebhookConnected = Boolean(sheetsWebhookUrl);
+  const isLiveSheetConnected = isWebhookConnected || isOAuthSheetConnected;
+
+  const isBookingInLiveSheet = (booking: Booking): boolean => {
+    if (syncedSheetBookingIds.includes(booking.id)) return true;
+    if (sheetSourceMode === 'csv') return false;
+    const targetName = booking.guestName.trim().toLowerCase();
+    return sheetRows.some(
+      (r) =>
+        r.unitType === booking.unitType &&
+        r.checkIn === booking.checkIn &&
+        r.checkOut === booking.checkOut &&
+        r.name.trim().toLowerCase() === targetName
+    );
+  };
+
+  const scrollToSheetGuide = () => {
+    setOpenScriptGuideSignal((n) => n + 1);
+    const panelEl = document.getElementById('integrasi-google-sheet');
+    panelEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const sendBookingViaWebhook = async (booking: Booking) => {
+    if (!sheetsWebhookUrl) return;
+    setSendingWebhookBookingId(booking.id);
+    setWebhookSyncError(null);
+    try {
+      const res = await appendBookingToWebhook(sheetsWebhookUrl, {
+        name: booking.guestName,
+        phone: booking.phone || '-',
+        checkIn: booking.checkIn,
+        checkOut: booking.checkOut,
+        unitType: booking.unitType,
+      });
+      onAppsScriptRowsLoaded(res.rows, res.title, res.tab);
+      setSyncedSheetBookingIds((prev) =>
+        prev.includes(booking.id) ? prev : [...prev, booking.id]
+      );
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : 'Gagal menghantar data ke Google Sheet secara automatik.';
+      setWebhookSyncError(msg);
+      if (msg.includes('doPost') || msg.includes('New deployment')) {
+        setOpenScriptGuideSignal((n) => n + 1);
+      }
+    } finally {
+      setSendingWebhookBookingId(null);
+    }
+  };
+
+  const handleRequestSendToSheet = (booking: Booking) => {
+    if (sheetsWebhookUrl) {
+      void sendBookingViaWebhook(booking);
+      return;
+    }
+
+    if (sheetsAccessToken && connectedSheetInfo) {
+      setSheetGuideNotice(null);
+      setPendingSheetBooking(booking);
+      return;
+    }
+
+    setSheetGuideNotice(
+      `Untuk menghantar rekod tempahan atas nama ${booking.guestName} (${formatDisplayDate(booking.checkIn)}) ke Google Sheet tanpa kebenaran akses Google setiap kali, tampal pautan Apps Script Web App di bawah.`
+    );
+    const panelEl = document.getElementById('integrasi-google-sheet');
+    panelEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   // Keep calendar filter aligned when parent triggers Homestay/Roomstay selection
   const handleUnitChange = (unit: UnitType) => {
@@ -380,7 +478,7 @@ export function BookingCalendarSection({
 
       await batch.commit();
 
-      setBookingSuccess({
+      const createdBooking: Booking = {
         id: bookingId,
         userId: actorId,
         unitType: selectedUnit,
@@ -394,7 +492,10 @@ export function BookingCalendarSection({
         totalAmount,
         status: 'confirmed',
         accessKey: bookingAccessKey,
-      });
+      };
+
+      setBookingSuccess(createdBooking);
+      setWebhookSyncError(null);
 
       // Jump calendar to the booked check-in month
       const [bookedYear, bookedMonth] = checkIn.split('-').map(Number);
@@ -405,6 +506,11 @@ export function BookingCalendarSection({
       setCheckOut('');
       setAccountNumber('');
       setPhone('');
+
+      // If Apps Script Web App is connected, save automatically and verify row appears in Google Sheet
+      if (sheetsWebhookUrl && autoSyncWebhook) {
+        await sendBookingViaWebhook(createdBooking);
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `bookings/${bookingId}`);
     } finally {
@@ -1236,7 +1342,7 @@ export function BookingCalendarSection({
 
               {/* Success Confirmation Receipt */}
               {bookingSuccess && (
-                <div className="p-4 rounded-xl bg-[#F1F7F3] border border-[#84B395] space-y-2 text-xs text-[#161B17]">
+                <div className="p-4 rounded-xl bg-[#F1F7F3] border border-[#84B395] space-y-2.5 text-xs text-[#161B17]">
                   <div className="flex items-center gap-2 font-semibold text-[#14532D] text-sm">
                     <CheckCircle2 className="w-4 h-4" />
                     Tempahan Berjaya Direkodkan
@@ -1265,7 +1371,46 @@ export function BookingCalendarSection({
                       </span>
                     </div>
                   </div>
-                  <div className="pt-2 border-t border-[#C6DEC9] flex justify-end">
+
+                  {/* Google Sheet sync status inside receipt */}
+                  {isBookingInLiveSheet(bookingSuccess) ? (
+                    <div className="p-2.5 rounded-lg bg-white border border-[#84B395] text-[11px] text-[#14532D] font-medium flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        Telah disimpan ke Google Sheet ({connectedSheetInfo?.spreadsheetTitle || 'Apps Script'}).
+                      </span>
+                    </div>
+                  ) : sendingWebhookBookingId === bookingSuccess.id ? (
+                    <div className="p-2.5 rounded-lg bg-white border border-[#C6DEC9] text-[11px] text-[#14532D] font-medium">
+                      Sedang menghantar rekod tempahan terus ke Google Sheet...
+                    </div>
+                  ) : webhookSyncError ? (
+                    <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-[11px] text-red-800 leading-relaxed space-y-1.5">
+                      <p>
+                        <strong>Data belum masuk ke Google Sheet:</strong> {webhookSyncError}
+                      </p>
+                      {sheetsWebhookUrl && (
+                        <button
+                          type="button"
+                          onClick={scrollToSheetGuide}
+                          className="font-semibold underline text-red-900 hover:text-black cursor-pointer"
+                        >
+                          Buka Kod Lengkap & Panduan 3 Langkah di Bawah
+                        </button>
+                      )}
+                    </div>
+                  ) : isLiveSheetConnected && connectedSheetInfo ? (
+                    <div className="p-2.5 rounded-lg bg-white border border-[#C6DEC9] text-[11px] text-[#525C54] leading-relaxed">
+                      Klik <strong className="text-[#161B17]">Simpan ke Google Sheet</strong> di bawah untuk menambah baris ini ke{' '}
+                      <strong className="text-[#161B17]">{connectedSheetInfo.spreadsheetTitle}</strong>.
+                    </div>
+                  ) : (
+                    <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-950 leading-relaxed">
+                      Rekod telah disimpan ke kalendar web, tetapi <strong>belum dihantar ke Google Sheet</strong> kerana sambungan Apps Script / Google Sheet belum ditetapkan di panel bawah.
+                    </div>
+                  )}
+
+                  <div className="pt-2 border-t border-[#C6DEC9] flex flex-wrap items-center justify-end gap-2">
                     <button
                       type="button"
                       onClick={() => downloadBookingPdf(bookingSuccess)}
@@ -1274,8 +1419,40 @@ export function BookingCalendarSection({
                       <FileDown className="w-3.5 h-3.5" />
                       Muat Turun PDF Slip Tempahan
                     </button>
+
+                    {!isBookingInLiveSheet(bookingSuccess) && (
+                      <button
+                        type="button"
+                        disabled={sendingWebhookBookingId === bookingSuccess.id}
+                        onClick={() => handleRequestSendToSheet(bookingSuccess)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#161B17] text-white text-xs font-semibold hover:bg-black transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5" />
+                        {sendingWebhookBookingId === bookingSuccess.id
+                          ? 'Menghantar...'
+                          : webhookSyncError
+                          ? 'Cuba Hantar Semula ke Sheet'
+                          : isLiveSheetConnected
+                          ? 'Simpan ke Google Sheet'
+                          : 'Sambung Google Sheet (Tanpa Log Masuk)'}
+                      </button>
+                    )}
                   </div>
                 </div>
+              )}
+
+              {sheetsWebhookUrl && (
+                <label className="flex items-start gap-2.5 p-3 rounded-xl bg-[#F1F7F3] border border-[#C6DEC9] text-xs text-[#14532D] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoSyncWebhook}
+                    onChange={(e) => setAutoSyncWebhook(e.target.checked)}
+                    className="mt-0.5 accent-[#14532D] cursor-pointer"
+                  />
+                  <span className="leading-relaxed">
+                    Simpan automatik ke Google Sheet (<strong>{connectedSheetInfo?.spreadsheetTitle || 'Apps Script'}</strong>) tanpa perlu kebenaran akses Google.
+                  </span>
+                </label>
               )}
 
               <button
@@ -1289,6 +1466,29 @@ export function BookingCalendarSection({
           ) : (
             /* Rekod Tempahan Saya / Admin View */
             <div className="space-y-3">
+              {webhookSyncError && (
+                <div
+                  role="alert"
+                  className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 space-y-1.5 leading-relaxed"
+                >
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-700" />
+                    <span>
+                      <strong>Gagal simpan ke Google Sheet:</strong> {webhookSyncError}
+                    </span>
+                  </div>
+                  {sheetsWebhookUrl && (
+                    <button
+                      type="button"
+                      onClick={scrollToSheetGuide}
+                      className="ml-6 font-semibold underline text-red-900 hover:text-black cursor-pointer"
+                    >
+                      Buka Kod Lengkap & Panduan 3 Langkah di Bawah
+                    </button>
+                  )}
+                </div>
+              )}
+
               {bookingsLoading ? (
                 <div className="space-y-3 animate-pulse">
                   <div className="h-28 rounded-xl bg-[#EFF2EE]" />
@@ -1366,14 +1566,35 @@ export function BookingCalendarSection({
                       </div>
 
                       <div className="pt-2 border-t border-[#EBEFEB] flex flex-wrap items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={() => downloadBookingPdf(item)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#14532D] bg-white text-xs font-semibold text-[#14532D] hover:bg-[#F1F7F3] transition-colors cursor-pointer"
-                        >
-                          <FileDown className="w-3.5 h-3.5" />
-                          Muat Turun PDF
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => downloadBookingPdf(item)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#14532D] bg-white text-xs font-semibold text-[#14532D] hover:bg-[#F1F7F3] transition-colors cursor-pointer"
+                          >
+                            <FileDown className="w-3.5 h-3.5" />
+                            Muat Turun PDF
+                          </button>
+
+                          {item.status === 'confirmed' && (
+                            isBookingInLiveSheet(item) ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#F1F7F3] border border-[#C6DEC9] text-[11px] font-medium text-[#14532D]">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                Disimpan di Sheet
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={sendingWebhookBookingId === item.id}
+                                onClick={() => handleRequestSendToSheet(item)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#161B17] text-white text-xs font-semibold hover:bg-black transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                {sendingWebhookBookingId === item.id ? 'Menghantar...' : 'Hantar ke Sheet'}
+                              </button>
+                            )
+                          )}
+                        </div>
 
                         {item.status === 'confirmed' && (
                           <button
@@ -1405,8 +1626,21 @@ export function BookingCalendarSection({
           sheetSourceMode={sheetSourceMode}
           sheetLoading={sheetLoading}
           sheetsAccessToken={sheetsAccessToken}
-          onSheetsTokenObtained={onSheetsTokenObtained}
-          onLiveRowsLoaded={onLiveRowsLoaded}
+          sheetsWebhookUrl={sheetsWebhookUrl}
+          onSheetsTokenObtained={(token) => {
+            onSheetsTokenObtained(token);
+            setSheetGuideNotice(null);
+          }}
+          onLiveRowsLoaded={(rows, spreadsheetId, spreadsheetTitle, tabTitle) => {
+            onLiveRowsLoaded(rows, spreadsheetId, spreadsheetTitle, tabTitle);
+            setSheetGuideNotice(null);
+          }}
+          onAppsScriptRowsLoaded={(rows, spreadsheetTitle, tabTitle) => {
+            onAppsScriptRowsLoaded(rows, spreadsheetTitle, tabTitle);
+            setSheetGuideNotice(null);
+          }}
+          onSaveWebhookUrl={onSaveWebhookUrl}
+          onClearWebhookUrl={onClearWebhookUrl}
           onResetToCsv={onResetToCsv}
           onJumpToCalendarDate={(dateStr, unit) => {
             const [y, m] = dateStr.split('-').map(Number);
@@ -1418,6 +1652,15 @@ export function BookingCalendarSection({
           }}
           latestCreatedBooking={bookingSuccess}
           connectedSheetInfo={connectedSheetInfo}
+          externalPendingAppendBooking={pendingSheetBooking}
+          onClearExternalPendingAppend={() => setPendingSheetBooking(null)}
+          onBookingSyncedToSheet={(bookingId) => {
+            setSyncedSheetBookingIds((prev) =>
+              prev.includes(bookingId) ? prev : [...prev, bookingId]
+            );
+          }}
+          sheetGuideNotice={sheetGuideNotice}
+          openScriptGuideSignal={openScriptGuideSignal}
         />
       ) : (
         <div className="mt-10 bg-white border border-[#DDE2DC] rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
