@@ -1,0 +1,169 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Shared Hardened Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerified() && request.auth.token.email == 'emailshahir@gmail.com';
+    }
+
+    function isValidDateString(val) {
+      return val is string && val.size() == 10 && val.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    // Validation Blueprint: Booking
+    function isValidBooking(data) {
+      return data.keys().hasAll([
+        'userId', 'unitType', 'guestName', 'state',
+        'checkIn', 'checkOut', 'accountNumber',
+        'nights', 'totalAmount', 'status', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'userId', 'unitType', 'guestName', 'phone', 'state',
+        'checkIn', 'checkOut', 'accountNumber',
+        'nights', 'totalAmount', 'status', 'createdAt', 'updatedAt'
+      ])
+      && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128
+      && data.unitType in ['homestay', 'roomstay']
+      && data.guestName is string && data.guestName.size() >= 2 && data.guestName.size() <= 100
+      && (!data.keys().hasAny(['phone']) || (data.phone is string && data.phone.size() <= 24))
+      && data.state is string && data.state.size() >= 2 && data.state.size() <= 50
+      && isValidDateString(data.checkIn)
+      && isValidDateString(data.checkOut)
+      && data.checkOut > data.checkIn
+      && data.accountNumber is string && data.accountNumber.size() >= 4 && data.accountNumber.size() <= 34
+      && data.accountNumber.matches('^[0-9A-Za-z\\-\\s]{4,34}$')
+      && data.nights is int && data.nights >= 1 && data.nights <= 60
+      && (data.totalAmount is int || data.totalAmount is float) && data.totalAmount > 0 && data.totalAmount <= 100000
+      && data.status in ['confirmed', 'cancelled']
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: AvailabilitySlot (Public Non-PII)
+    function isValidAvailabilitySlot(data) {
+      return data.keys().hasAll([
+        'bookingId', 'userId', 'unitType', 'checkIn', 'checkOut', 'status', 'createdAt'
+      ])
+      && data.keys().hasOnly([
+        'bookingId', 'userId', 'unitType', 'checkIn', 'checkOut', 'status', 'createdAt'
+      ])
+      && isValidId(data.bookingId)
+      && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128
+      && data.unitType in ['homestay', 'roomstay']
+      && isValidDateString(data.checkIn)
+      && isValidDateString(data.checkOut)
+      && data.checkOut > data.checkIn
+      && data.status in ['confirmed', 'cancelled']
+      && data.createdAt is timestamp;
+    }
+
+    // Validation Blueprint: Feedback
+    function isValidFeedback(data) {
+      return data.keys().hasAll([
+        'userId', 'authorName', 'stayType', 'rating', 'comment', 'createdAt'
+      ])
+      && data.keys().hasOnly([
+        'userId', 'authorName', 'stayType', 'rating', 'comment', 'createdAt'
+      ])
+      && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128
+      && data.authorName is string && data.authorName.size() >= 2 && data.authorName.size() <= 80
+      && data.stayType in ['homestay', 'roomstay']
+      && data.rating is int && data.rating >= 1 && data.rating <= 5
+      && data.comment is string && data.comment.size() >= 5 && data.comment.size() <= 600
+      && data.createdAt is timestamp;
+    }
+
+    // Private Bookings Collection (Admin-Only Booking Creation & Management)
+    match /bookings/{bookingId} {
+      allow get: if isValidId(bookingId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && isValidId(bookingId)
+        && isValidBooking(incoming())
+        && incoming().userId == request.auth.uid
+        && incoming().status == 'confirmed'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && existsAfter(/databases/$(database)/documents/availability_slots/$(bookingId));
+      allow update: if isAdmin()
+        && isValidId(bookingId)
+        && isValidBooking(incoming())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(bookingId);
+    }
+
+    // Public Calendar Availability Slots (Read-Only for Public, Writes Admin-Only)
+    match /availability_slots/{slotId} {
+      allow get: if isValidId(slotId);
+      allow list: if true;
+      allow create: if isAdmin()
+        && isValidId(slotId)
+        && isValidAvailabilitySlot(incoming())
+        && incoming().bookingId == slotId
+        && incoming().userId == request.auth.uid
+        && incoming().status == 'confirmed'
+        && incoming().createdAt == request.time
+        && existsAfter(/databases/$(database)/documents/bookings/$(slotId));
+      allow update: if isAdmin()
+        && isValidId(slotId)
+        && isValidAvailabilitySlot(incoming())
+        && incoming().bookingId == existing().bookingId
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(slotId);
+    }
+
+    // Public Guest Feedback Collection
+    match /feedbacks/{feedbackId} {
+      allow get: if isValidId(feedbackId);
+      allow list: if true;
+      allow create: if isSignedIn()
+        && isVerified()
+        && isValidId(feedbackId)
+        && isValidFeedback(incoming())
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(feedbackId)
+        && isValidFeedback(incoming())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(feedbackId) && isSignedIn() && (
+        existing().userId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // Health check doc for connection test
+    match /test/connection {
+      allow get: if true;
+    }
+  }
+}

@@ -1,0 +1,114 @@
+export type UnitType = 'homestay' | 'roomstay';
+
+export type BookingStatus = 'confirmed' | 'cancelled';
+
+export interface Booking {
+  id: string;
+  userId: string;
+  unitType: UnitType;
+  guestName: string;
+  phone?: string;
+  state: string;
+  checkIn: string; // YYYY-MM-DD
+  checkOut: string; // YYYY-MM-DD
+  accountNumber: string;
+  nights: number;
+  totalAmount: number;
+  status: BookingStatus;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface SheetBookingRow {
+  id: string;
+  timestamp: string;
+  name: string;
+  phone: string;
+  checkIn: string; // YYYY-MM-DD
+  checkOut: string; // YYYY-MM-DD
+  unitType: UnitType;
+  rawChoice: string;
+  source: 'csv' | 'live-sheet';
+}
+
+export interface AvailabilitySlot {
+  id: string;
+  bookingId: string;
+  userId: string;
+  unitType: UnitType;
+  checkIn: string; // YYYY-MM-DD
+  checkOut: string; // YYYY-MM-DD
+  status: BookingStatus;
+  guestName?: string;
+  source?: 'firestore' | 'sheet';
+  createdAt?: unknown;
+}
+
+export interface Feedback {
+  id: string;
+  userId: string;
+  authorName: string;
+  stayType: UnitType;
+  rating: number;
+  comment: string;
+  createdAt?: unknown;
+}
+
+export interface GalleryPhoto {
+  id: string;
+  unitType: UnitType;
+  title: string;
+  caption: string;
+  src: string;
+  aspect: '16:9' | '4:3';
+}
+
+export const MALAYSIA_STATES = [
+  'Johor',
+  'Kedah',
+  'Kelantan',
+  'Melaka',
+  'Negeri Sembilan',
+  'Pahang',
+  'Perak',
+  'Perlis',
+  'Pulau Pinang',
+  'Sabah',
+  'Sarawak',
+  'Selangor',
+  'Terengganu',
+  'WP Kuala Lumpur',
+  'WP Labuan',
+  'WP Putrajaya',
+] as const;
+
+export const UNIT_RATES: Record<UnitType, { label: string; ratePerNight: number; subtitle: string; maxGuests: number }> = {
+  homestay: {
+    label: 'Ss Homestay',
+    ratePerNight: 300,
+    subtitle: '3 Bilik Tidur (3 Aircond) · Private Pool · Maksimum 10 Orang',
+    maxGuests: 10,
+  },
+  roomstay: {
+    label: 'Ss Roomstay',
+    ratePerNight: 130,
+    subtitle: 'Bilik Studio Persendirian · 1 Katil Queen · Maksimum 3 Tetamu',
+    maxGuests: 3,
+  },
+};
+
+export const VALIDATION_LIMITS = {
+  GUEST_NAME_MIN: 2,
+  GUEST_NAME_MAX: 100,
+  ACCOUNT_MIN: 4,
+  ACCOUNT_MAX: 34,
+  ACCOUNT_PATTERN: /^[0-9A-Za-z\-\s]{4,34}$/,
+  AUTHOR_NAME_MIN: 2,
+  AUTHOR_NAME_MAX: 80,
+  COMMENT_MIN: 5,
+  COMMENT_MAX: 600,
+  MIN_NIGHTS: 1,
+  MAX_NIGHTS: 60,
+} as const;
+
+export const ADMIN_EMAIL = 'emailshahir@gmail.com';

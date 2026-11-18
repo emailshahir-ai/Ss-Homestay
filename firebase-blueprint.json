@@ -1,0 +1,217 @@
+{
+  "entities": {
+    "Booking": {
+      "title": "Booking",
+      "description": "Private homestay or roomstay reservation record containing guest details, dates, bank account reference, and calculated total.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Firebase Auth UID of the guest who created the booking."
+        },
+        "unitType": {
+          "type": "string",
+          "enum": ["homestay", "roomstay"],
+          "description": "Selected accommodation type."
+        },
+        "guestName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100,
+          "description": "Full name of the guest."
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 24,
+          "description": "Guest phone number."
+        },
+        "state": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 50,
+          "description": "Malaysian state of origin."
+        },
+        "checkIn": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Check-in date in YYYY-MM-DD format."
+        },
+        "checkOut": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Check-out date in YYYY-MM-DD format."
+        },
+        "accountNumber": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 34,
+          "pattern": "^[0-9A-Za-z\\-\\s]{4,34}$",
+          "description": "Guest bank account or payment reference number."
+        },
+        "nights": {
+          "type": "number",
+          "description": "Number of nights stayed."
+        },
+        "totalAmount": {
+          "type": "number",
+          "description": "Total booking amount in MYR."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["confirmed", "cancelled"],
+          "description": "Current reservation status."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when booking was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when booking was last updated."
+        }
+      },
+      "required": [
+        "userId",
+        "unitType",
+        "guestName",
+        "state",
+        "checkIn",
+        "checkOut",
+        "accountNumber",
+        "nights",
+        "totalAmount",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AvailabilitySlot": {
+      "title": "AvailabilitySlot",
+      "description": "Non-PII public calendar occupancy slot synchronized atomically with a booking.",
+      "type": "object",
+      "properties": {
+        "bookingId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Associated booking document ID."
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "UID of the guest who holds this slot."
+        },
+        "unitType": {
+          "type": "string",
+          "enum": ["homestay", "roomstay"],
+          "description": "Accommodation unit type."
+        },
+        "checkIn": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Check-in date in YYYY-MM-DD format."
+        },
+        "checkOut": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Check-out date in YYYY-MM-DD format."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["confirmed", "cancelled"],
+          "description": "Slot occupancy status."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when slot was created."
+        }
+      },
+      "required": [
+        "bookingId",
+        "userId",
+        "unitType",
+        "checkIn",
+        "checkOut",
+        "status",
+        "createdAt"
+      ]
+    },
+    "Feedback": {
+      "title": "Feedback",
+      "description": "Public guest review for Ss Homestay or Ss Roomstay.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "UID of the reviewer."
+        },
+        "authorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "description": "Display name of the guest."
+        },
+        "stayType": {
+          "type": "string",
+          "enum": ["homestay", "roomstay"],
+          "description": "Unit type reviewed."
+        },
+        "rating": {
+          "type": "number",
+          "description": "Star rating between 1 and 5."
+        },
+        "comment": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 600,
+          "description": "Guest review message."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when review was submitted."
+        }
+      },
+      "required": [
+        "userId",
+        "authorName",
+        "stayType",
+        "rating",
+        "comment",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Private reservation records readable only by the booking owner or admin."
+    },
+    "/availability_slots/{slotId}": {
+      "schema": { "$ref": "#/entities/AvailabilitySlot" },
+      "description": "Public non-PII date occupancy slots for calendar availability display."
+    },
+    "/feedbacks/{feedbackId}": {
+      "schema": { "$ref": "#/entities/Feedback" },
+      "description": "Guest testimonials and feedback for Ss Homestay and Roomstay."
+    }
+  }
+}

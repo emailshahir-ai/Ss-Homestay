@@ -1,0 +1,8 @@
+{
+  "name": "Ss Homestay & Roomstay",
+  "description": "Aplikasi tempahan penginapan dan kalendar kekosongan untuk Ss Homestay & Roomstay.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
