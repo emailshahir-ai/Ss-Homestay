@@ -1290,7 +1290,7 @@ export function BookingCalendarSection({
                           .getElementById('analisis-kewangan')
                           ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                       }}
-                      className="inline-flex items-center gap-1 font-semibold text-[#14532D] hover:underline cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#EFF6FF] border border-[#BFDBFE] font-semibold text-[#1E3A5F] hover:bg-[#DBEAFE] transition-colors cursor-pointer"
                     >
                       <Wallet className="w-3.5 h-3.5" />
                       Analisis Kewangan
@@ -1959,6 +1959,16 @@ export function BookingCalendarSection({
       {/* Admin Financial Analysis & Google Sheet Integration (Admin Unlocked Only) */}
       {adminUnlocked ? (
         <>
+          {/* Partition Divider: Pengurusan Tempahan -> Analisis Kewangan */}
+          <div className="mt-14 mb-6 flex items-center gap-4" aria-hidden="true">
+            <div className="h-[2px] flex-1 bg-gradient-to-r from-transparent via-[#93C5FD] to-[#1E3A5F]" />
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#1E3A5F] text-white text-[11px] font-bold tracking-wider uppercase shadow-xs">
+              <Wallet className="w-3.5 h-3.5 text-amber-300" />
+              <span>Bahagian Analisis Kewangan Admin</span>
+            </div>
+            <div className="h-[2px] flex-1 bg-gradient-to-l from-transparent via-[#93C5FD] to-[#1E3A5F]" />
+          </div>
+
           <FinancialAnalysisPanel
             user={user}
             bookingAccessKey={bookingAccessKey}

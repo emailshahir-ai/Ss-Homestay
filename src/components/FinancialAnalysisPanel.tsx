@@ -544,57 +544,58 @@ export function FinancialAnalysisPanel({
   return (
     <div
       id="analisis-kewangan"
-      className="mt-10 bg-white border border-[#DDE2DC] rounded-2xl p-5 sm:p-7 scroll-mt-24"
+      className="bg-white border-2 border-[#93C5FD] rounded-2xl overflow-hidden shadow-sm scroll-mt-28"
     >
-      {/* Header */}
-      <div className="flex flex-col gap-4 pb-6 border-b border-[#DDE2DC]">
-        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2 text-xs font-medium text-[#14532D]">
-              <Wallet className="w-4 h-4" />
-              <span>Analisis Kewangan Admin · Pautan Google Sheet</span>
-            </div>
-            <h3 className="font-display text-2xl sm:text-3xl font-semibold text-[#161B17]">
-              Wang Masuk, Wang Keluar, Perkara &amp; Baki
-            </h3>
-            <p className="text-xs sm:text-sm text-[#525C54] leading-relaxed max-w-2xl">
-              Diselaraskan terus dengan helaian{' '}
-              <strong className="text-[#161B17]">
-                {connectedSheetInfo?.spreadsheetTitle || 'SISTEM BOOKING AI STUDIO'}
-              </strong>
-              : kolum <strong className="text-[#14532D]">JUMLAH</strong> sebagai Wang Masuk, kolum{' '}
-              <strong className="text-[#161B17]">PERKARA</strong> &amp;{' '}
-              <strong className="text-[#991B1B]">WANG KELUAR</strong> sebagai perbelanjaan, serta kiraan{' '}
-              <strong className="text-[#161B17]">Baki</strong> automatik.
-            </p>
+      {/* Distinct Executive Navy Header Band */}
+      <div className="bg-[#1E3A5F] text-white px-5 sm:px-7 py-5 sm:py-6 flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 text-xs font-semibold tracking-wide text-amber-300 uppercase">
+            <Wallet className="w-4 h-4" />
+            <span>Analisis Kewangan Admin · Pautan Google Sheet</span>
           </div>
-
-          <button
-            type="button"
-            onClick={handleRefreshFromSheet}
-            disabled={refreshingSheet}
-            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#DDE2DC] bg-[#F8F9F7] text-xs font-semibold text-[#161B17] hover:border-[#14532D] hover:text-[#14532D] transition-colors cursor-pointer disabled:opacity-50 self-start shrink-0"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshingSheet ? 'animate-spin' : ''}`} />
-            {refreshingSheet ? 'Menyelaras...' : 'Segar Semula Sheet'}
-          </button>
+          <h3 className="font-display text-2xl sm:text-3xl font-semibold text-white">
+            Wang Masuk, Wang Keluar, Perkara &amp; Baki
+          </h3>
+          <p className="text-xs sm:text-sm text-slate-200 leading-relaxed max-w-2xl">
+            Diselaraskan terus dengan helaian{' '}
+            <strong className="text-white">
+              {connectedSheetInfo?.spreadsheetTitle || 'SISTEM BOOKING AI STUDIO'}
+            </strong>
+            : kolum <strong className="text-emerald-300">JUMLAH</strong> sebagai Wang Masuk, kolum{' '}
+            <strong className="text-amber-200">PERKARA</strong> &amp;{' '}
+            <strong className="text-rose-300">WANG KELUAR</strong> sebagai perbelanjaan, serta kiraan{' '}
+            <strong className="text-white">Baki</strong> automatik.
+          </p>
         </div>
 
+        <button
+          type="button"
+          onClick={handleRefreshFromSheet}
+          disabled={refreshingSheet}
+          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg border border-white/25 bg-white/10 text-xs font-semibold text-white hover:bg-white/20 transition-colors cursor-pointer disabled:opacity-50 self-start shrink-0"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${refreshingSheet ? 'animate-spin' : ''}`} />
+          {refreshingSheet ? 'Menyelaras...' : 'Segar Semula Sheet'}
+        </button>
+      </div>
+
+      {/* Main Content Body */}
+      <div className="p-5 sm:p-7">
         {/* Dedicated Monthly Print & PDF Bar */}
-        <div className="p-3.5 rounded-xl bg-[#F8F9F7] border border-[#DDE2DC] flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="p-3.5 rounded-xl bg-[#EFF6FF] border border-[#BFDBFE] flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 flex-1">
             <label
               htmlFor="print-month-select"
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#161B17] whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E3A5F] whitespace-nowrap"
             >
-              <Calendar className="w-4 h-4 text-[#14532D]" />
+              <Calendar className="w-4 h-4 text-[#1E3A5F]" />
               Pilih Bulan Laporan / Cetakan:
             </label>
             <select
               id="print-month-select"
               value={monthFilter}
               onChange={(e) => setMonthFilter(e.target.value)}
-              className="px-3 py-2 text-xs sm:text-sm font-medium rounded-lg border border-[#C6DEC9] bg-white text-[#161B17] focus:outline-none focus:border-[#14532D] cursor-pointer sm:min-w-[230px]"
+              className="px-3 py-2 text-xs sm:text-sm font-medium rounded-lg border border-[#93C5FD] bg-white text-[#1E3A5F] focus:outline-none focus:border-[#1E3A5F] cursor-pointer sm:min-w-[230px]"
             >
               <option value="all">Semua Bulan ({unifiedRows.length} rekod)</option>
               {monthOptions.map((opt) => (
@@ -610,7 +611,7 @@ export function FinancialAnalysisPanel({
             <button
               type="button"
               onClick={() => void handlePrintReport()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#14532D] bg-white text-[#14532D] text-xs font-semibold hover:bg-[#F1F7F3] transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#1E3A5F] bg-white text-[#1E3A5F] text-xs font-semibold hover:bg-[#DBEAFE] transition-colors cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               Cetak Laporan
@@ -618,77 +619,76 @@ export function FinancialAnalysisPanel({
             <button
               type="button"
               onClick={() => void handleDownloadPdf()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#14532D] text-white text-xs font-semibold hover:bg-[#166534] transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#1E3A5F] text-white text-xs font-semibold hover:bg-[#172E4D] transition-colors cursor-pointer"
             >
               <FileDown className="w-3.5 h-3.5" />
               Muat Turun PDF
             </button>
           </div>
         </div>
-      </div>
 
-      {/* 4 KPI Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 py-6 border-b border-[#DDE2DC]">
-        <div className="p-4 rounded-xl bg-[#F1F7F3] border border-[#C6DEC9]">
-          <div className="flex items-center justify-between text-xs font-medium text-[#14532D]">
-            <span>Jumlah Wang Masuk</span>
-            <ArrowDownLeft className="w-4 h-4" />
+        {/* 4 KPI Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 py-6 border-b border-[#E2E8F0]">
+          <div className="p-4 rounded-xl bg-emerald-50/80 border border-emerald-200">
+            <div className="flex items-center justify-between text-xs font-semibold text-emerald-800">
+              <span>Jumlah Wang Masuk</span>
+              <ArrowDownLeft className="w-4 h-4" />
+            </div>
+            <p className="font-mono-tabular text-2xl font-bold text-emerald-800 mt-2">
+              {formatMYR(kpis.totalIncome)}
+            </p>
+            <span className="block text-[11px] text-slate-600 mt-1">
+              Kolum JUMLAH · {kpis.incomeCount} transaksi
+            </span>
           </div>
-          <p className="font-mono-tabular text-2xl font-bold text-[#14532D] mt-2">
-            {formatMYR(kpis.totalIncome)}
-          </p>
-          <span className="block text-[11px] text-[#525C54] mt-1">
-            Kolum JUMLAH · {kpis.incomeCount} transaksi
-          </span>
-        </div>
 
-        <div className="p-4 rounded-xl bg-red-50/80 border border-red-200">
-          <div className="flex items-center justify-between text-xs font-medium text-[#991B1B]">
-            <span>Jumlah Wang Keluar</span>
-            <ArrowUpRight className="w-4 h-4" />
+          <div className="p-4 rounded-xl bg-red-50/80 border border-red-200">
+            <div className="flex items-center justify-between text-xs font-semibold text-[#991B1B]">
+              <span>Jumlah Wang Keluar</span>
+              <ArrowUpRight className="w-4 h-4" />
+            </div>
+            <p className="font-mono-tabular text-2xl font-bold text-[#991B1B] mt-2">
+              {formatMYR(kpis.totalExpense)}
+            </p>
+            <span className="block text-[11px] text-slate-600 mt-1">
+              Kolum WANG KELUAR · {kpis.expenseCount} transaksi
+            </span>
           </div>
-          <p className="font-mono-tabular text-2xl font-bold text-[#991B1B] mt-2">
-            {formatMYR(kpis.totalExpense)}
-          </p>
-          <span className="block text-[11px] text-[#525C54] mt-1">
-            Kolum WANG KELUAR · {kpis.expenseCount} transaksi
-          </span>
-        </div>
 
-        <div
-          className={`p-4 rounded-xl border ${
-            kpis.netBalance >= 0
-              ? 'bg-[#14532D] border-[#14532D] text-white'
-              : 'bg-[#991B1B] border-[#7F1D1D] text-white'
-          }`}
-        >
-          <div className="flex items-center justify-between text-xs font-medium text-white/85">
-            <span>Baki Semasa</span>
-            <Wallet className="w-4 h-4" />
+          <div
+            className={`p-4 rounded-xl border ${
+              kpis.netBalance >= 0
+                ? 'bg-[#1E3A5F] border-[#1E3A5F] text-white'
+                : 'bg-[#991B1B] border-[#7F1D1D] text-white'
+            }`}
+          >
+            <div className="flex items-center justify-between text-xs font-semibold text-amber-200">
+              <span>Baki Semasa</span>
+              <Wallet className="w-4 h-4" />
+            </div>
+            <p className="font-mono-tabular text-2xl font-bold text-white mt-2">
+              {formatMYR(kpis.netBalance)}
+            </p>
+            <span className="block text-[11px] text-slate-200 mt-1">
+              Wang Masuk − Wang Keluar
+            </span>
           </div>
-          <p className="font-mono-tabular text-2xl font-bold mt-2">
-            {formatMYR(kpis.netBalance)}
-          </p>
-          <span className="block text-[11px] text-white/80 mt-1">
-            Wang Masuk − Wang Keluar
-          </span>
-        </div>
 
-        <div className="p-4 rounded-xl bg-[#F8F9F7] border border-[#DDE2DC]">
-          <div className="flex items-center justify-between text-xs font-medium text-[#525C54]">
-            <span>Margin &amp; Ringkasan</span>
-            <BarChart3 className="w-4 h-4 text-[#14532D]" />
+          <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#BFDBFE]">
+            <div className="flex items-center justify-between text-xs font-semibold text-[#1E3A5F]">
+              <span>Margin &amp; Ringkasan</span>
+              <BarChart3 className="w-4 h-4 text-[#1E3A5F]" />
+            </div>
+            <p className="font-mono-tabular text-2xl font-bold text-[#1E3A5F] mt-2">
+              {kpis.totalIncome > 0
+                ? `${Math.round((kpis.netBalance / kpis.totalIncome) * 100)}%`
+                : '—'}
+            </p>
+            <span className="block text-[11px] text-slate-600 mt-1">
+              {ledgerWithBalance.length} jumlah rekod dipaparkan
+            </span>
           </div>
-          <p className="font-mono-tabular text-2xl font-bold text-[#161B17] mt-2">
-            {kpis.totalIncome > 0
-              ? `${Math.round((kpis.netBalance / kpis.totalIncome) * 100)}%`
-              : '—'}
-          </p>
-          <span className="block text-[11px] text-[#525C54] mt-1">
-            {ledgerWithBalance.length} jumlah rekod dipaparkan
-          </span>
         </div>
-      </div>
 
       {/* Middle Section: Record Expense/Income Form (5 cols) + Monthly Visual Chart (7 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 py-6 border-b border-[#DDE2DC]">
@@ -1049,9 +1049,9 @@ export function FinancialAnalysisPanel({
           Tiada rekod transaksi kewangan yang sepadan dengan penapis pilihan.
         </div>
       ) : (
-        <div className="overflow-x-auto max-h-[420px] overflow-y-auto border border-[#DDE2DC] rounded-xl">
+        <div className="overflow-x-auto max-h-[420px] overflow-y-auto border border-[#BFDBFE] rounded-xl">
           <table className="w-full text-left border-collapse text-xs">
-            <thead className="bg-[#F8F9F7] sticky top-0 z-10 border-b border-[#DDE2DC] text-[#525C54]">
+            <thead className="bg-[#EFF6FF] sticky top-0 z-10 border-b border-[#BFDBFE] text-[#1E3A5F]">
               <tr>
                 <th className="py-2.5 px-3 font-semibold whitespace-nowrap">Tarikh</th>
                 <th className="py-2.5 px-3 font-semibold">Perkara / Rujukan</th>
@@ -1133,12 +1133,12 @@ export function FinancialAnalysisPanel({
                 </tr>
               ))}
             </tbody>
-            <tfoot className="bg-[#F1F7F3] border-t-2 border-[#84B395] sticky bottom-0">
+            <tfoot className="bg-[#EFF6FF] border-t-2 border-[#1E3A5F] sticky bottom-0">
               <tr>
-                <td colSpan={3} className="py-3 px-3 font-bold text-[#161B17]">
+                <td colSpan={3} className="py-3 px-3 font-bold text-[#1E3A5F]">
                   JUMLAH KESELURUHAN
                 </td>
-                <td className="py-3 px-3 font-mono-tabular font-bold text-right text-[#14532D] whitespace-nowrap">
+                <td className="py-3 px-3 font-mono-tabular font-bold text-right text-emerald-800 whitespace-nowrap">
                   {formatMYR(kpis.totalIncome)}
                 </td>
                 <td className="py-3 px-3 font-mono-tabular font-bold text-right text-[#991B1B] whitespace-nowrap">
@@ -1146,7 +1146,7 @@ export function FinancialAnalysisPanel({
                 </td>
                 <td
                   className={`py-3 px-3 font-mono-tabular font-bold text-right whitespace-nowrap ${
-                    kpis.netBalance >= 0 ? 'text-[#14532D]' : 'text-[#991B1B]'
+                    kpis.netBalance >= 0 ? 'text-[#1E3A5F]' : 'text-[#991B1B]'
                   }`}
                 >
                   {formatMYR(kpis.netBalance)}
@@ -1157,6 +1157,7 @@ export function FinancialAnalysisPanel({
           </table>
         </div>
       )}
+      </div>
     </div>
   );
 }
