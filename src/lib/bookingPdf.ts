@@ -214,7 +214,7 @@ async function buildBookingPdfDocument(
     doc.text(value, margin + 65, rowY + 6.3);
   });
 
-  y += tableHeight + 10;
+  y += tableHeight + 7;
 
   // 4. Payment Summary Box
   doc.setTextColor(22, 27, 23);
@@ -267,7 +267,7 @@ async function buildBookingPdfDocument(
   doc.setFontSize(13);
   doc.text(formatMYR(computedTotal), pageWidth - margin - 5, dividerY + 8, { align: 'right' });
 
-  y += summaryBoxHeight + 10;
+  y += summaryBoxHeight + 7;
 
   // 5. House Rules & Guest Policy Box
   doc.setTextColor(22, 27, 23);
@@ -278,7 +278,7 @@ async function buildBookingPdfDocument(
 
   doc.setFillColor(255, 255, 255);
   doc.setDrawColor(221, 226, 220);
-  doc.roundedRect(margin, y, contentWidth, 44, 3, 3, 'FD');
+  doc.roundedRect(margin, y, contentWidth, 40, 3, 3, 'FD');
 
   const guidelines = [
     '1. Waktu Check-In: 03:00 PM | Waktu Check-Out: 12:00 PM.',
@@ -289,14 +289,31 @@ async function buildBookingPdfDocument(
   ];
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
+  doc.setFontSize(8.8);
   doc.setTextColor(58, 66, 60);
   guidelines.forEach((line, idx) => {
-    doc.text(line, margin + 5, y + 8 + idx * 7.2);
+    doc.text(line, margin + 5, y + 7.5 + idx * 6.7);
   });
 
-  // Footer
+  // Manager Sign-Off (Bottom-Right Corner above Footer)
   const pageHeight = doc.internal.pageSize.getHeight();
+  const signRightX = pageWidth - margin;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(82, 92, 84);
+  doc.text('Disahkan oleh,', signRightX, pageHeight - 36.5, { align: 'right' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(22, 27, 23);
+  doc.text('Ahmad Shahir bin Muhammad Hasan', signRightX, pageHeight - 30.8, { align: 'right' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(20, 83, 45);
+  doc.text('Pengurus Ss Homestay & Roomstay', signRightX, pageHeight - 25.6, { align: 'right' });
+
+  // Footer
   doc.setDrawColor(221, 226, 220);
   doc.line(margin, pageHeight - 20, pageWidth - margin, pageHeight - 20);
   doc.setFont('helvetica', 'normal');
@@ -463,7 +480,7 @@ export function buildBookingWhatsAppMessage(payload: BookingPdfPayload): string 
   lines.push(`Alamat: ${LOCATION_INFO.address}`);
   lines.push(`Lokasi Google Maps: ${LOCATION_INFO.googleMapsUrl}`);
   lines.push('');
-  lines.push('Slip tempahan rasmi (PDF) disertakan bersama mesej ini. Terima kasih kerana memilih Ss Homestay & Roomstay!');
+  lines.push('Terima kasih kerana memilih Ss Homestay & Roomstay!');
 
   return lines.join('\n');
 }
