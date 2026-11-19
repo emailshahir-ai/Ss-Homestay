@@ -37,7 +37,7 @@ export function GallerySection() {
             </h2>
           </div>
           <p className="text-sm text-[#525C54]">
-            Private Pool, 3 bilik tidur berhawa dingin, ruang tamu, ruang keluarga, ruang makan, dapur & risalah rasmi. Klik gambar untuk paparan penuh.
+            Private Pool, 3 bilik tidur berhawa dingin, ruang tamu, ruang keluarga, ruang makan, dapur, tandas & risalah rasmi. Klik gambar untuk paparan penuh.
           </p>
         </div>
 

@@ -289,3 +289,219 @@ export async function downloadFinanceReportPdf(payload: FinanceReportPdfPayload)
   const safePeriod = payload.periodLabel.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 30);
   doc.save(`Laporan-Kewangan-SsHomestay-${safePeriod || 'Semua'}.pdf`);
 }
+
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export async function printFinanceReport(payload: FinanceReportPdfPayload): Promise<void> {
+  const logoDataUrl = await loadLogoDataUrl();
+  const printedAt = formatPrintedTimestamp();
+  const isPositive = payload.netBalance >= 0;
+
+  const rowsHtml =
+    payload.items.length === 0
+      ? `<tr><td colspan="5" style="text-align:center;padding:18px;color:#525C54;">Tiada transaksi kewangan bagi tempoh ${escapeHtml(payload.periodLabel)}.</td></tr>`
+      : payload.items
+          .map(
+            (item, idx) => `
+          <tr style="background:${idx % 2 === 1 ? '#F9FAF9' : '#FFFFFF'};">
+            <td style="padding:7px 8px;border-bottom:1px solid #E4E8E4;white-space:nowrap;font-family:monospace;color:#414943;">${
+              item.date ? escapeHtml(formatDisplayDate(item.date)) : '—'
+            }</td>
+            <td style="padding:7px 8px;border-bottom:1px solid #E4E8E4;color:#161B17;">${escapeHtml(item.perkara)}</td>
+            <td style="padding:7px 8px;border-bottom:1px solid #E4E8E4;text-align:right;white-space:nowrap;font-family:monospace;font-weight:${
+              item.wangMasuk > 0 ? '700' : '400'
+            };color:${item.wangMasuk > 0 ? '#14532D' : '#9AA39C'};">${
+              item.wangMasuk > 0 ? escapeHtml(formatMYR(item.wangMasuk)) : '—'
+            }</td>
+            <td style="padding:7px 8px;border-bottom:1px solid #E4E8E4;text-align:right;white-space:nowrap;font-family:monospace;font-weight:${
+              item.wangKeluar > 0 ? '700' : '400'
+            };color:${item.wangKeluar > 0 ? '#991B1B' : '#9AA39C'};">${
+              item.wangKeluar > 0 ? escapeHtml(formatMYR(item.wangKeluar)) : '—'
+            }</td>
+            <td style="padding:7px 8px;border-bottom:1px solid #E4E8E4;text-align:right;white-space:nowrap;font-family:monospace;font-weight:700;color:${
+              item.runningBalance >= 0 ? '#161B17' : '#991B1B'
+            };">${escapeHtml(formatMYR(item.runningBalance))}</td>
+          </tr>`
+          )
+          .join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="utf-8" />
+  <title>Laporan Kewangan · ${escapeHtml(payload.periodLabel)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 14mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #161B17;
+      background: #FFFFFF;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .top-bar { height: 5px; background: #14532D; margin-bottom: 14px; border-radius: 2px; }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid #14532D;
+    }
+    .logo { height: 54px; width: auto; display: block; }
+    .title-block { text-align: right; }
+    .title-block h1 { margin: 0 0 4px; font-size: 16px; color: #14532D; letter-spacing: 0.3px; }
+    .title-block p { margin: 2px 0; font-size: 11px; color: #525C54; }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin: 16px 0 18px;
+    }
+    .kpi-card {
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #DDE2DC;
+    }
+    .kpi-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+    .kpi-val { font-size: 16px; font-weight: 700; font-family: monospace; margin-top: 4px; }
+    .section-title { font-size: 13px; font-weight: 700; margin: 0 0 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    thead th {
+      background: #F0F3F0;
+      color: #3A423C;
+      text-align: left;
+      padding: 8px;
+      border-top: 1px solid #D2D9D3;
+      border-bottom: 1px solid #D2D9D3;
+      font-weight: 700;
+    }
+    tfoot td {
+      background: #F1F7F3;
+      border-top: 2px solid #84B395;
+      border-bottom: 1px solid #84B395;
+      padding: 9px 8px;
+      font-weight: 700;
+    }
+    .footer-note {
+      margin-top: 16px;
+      padding-top: 8px;
+      border-top: 1px solid #DDE2DC;
+      font-size: 10px;
+      color: #6E7670;
+      display: flex;
+      justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+  <div class="top-bar"></div>
+  <div class="header">
+    <div>
+      ${
+        logoDataUrl
+          ? `<img src="${logoDataUrl}" alt="Ss Homestay &amp; Roomstay" class="logo" />`
+          : `<div style="font-size:18px;font-weight:700;color:#14532D;">SS HOMESTAY &amp; ROOMSTAY</div>`
+      }
+    </div>
+    <div class="title-block">
+      <h1>LAPORAN ANALISIS KEWANGAN</h1>
+      <p><strong>Bulan / Tempoh:</strong> ${escapeHtml(payload.periodLabel)}</p>
+      <p><strong>Sumber:</strong> ${escapeHtml(payload.sheetTitle)}</p>
+      <p>Dicetak pada: ${escapeHtml(printedAt)}</p>
+    </div>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi-card" style="background:#F1F7F3;border-color:#84B395;">
+      <div class="kpi-label" style="color:#525C54;">Jumlah Wang Masuk</div>
+      <div class="kpi-val" style="color:#14532D;">${escapeHtml(formatMYR(payload.totalIncome))}</div>
+    </div>
+    <div class="kpi-card" style="background:#FEF2F2;border-color:#EF9A9A;">
+      <div class="kpi-label" style="color:#525C54;">Jumlah Wang Keluar</div>
+      <div class="kpi-val" style="color:#991B1B;">${escapeHtml(formatMYR(payload.totalExpense))}</div>
+    </div>
+    <div class="kpi-card" style="background:${isPositive ? '#14532D' : '#991B1B'};border-color:${
+      isPositive ? '#14532D' : '#991B1B'
+    };color:#FFFFFF;">
+      <div class="kpi-label" style="color:#EBF5EE;">Baki Bersih</div>
+      <div class="kpi-val" style="color:#FFFFFF;">${escapeHtml(formatMYR(payload.netBalance))}</div>
+    </div>
+  </div>
+
+  <h2 class="section-title">Lejar Transaksi Kewangan (${payload.items.length} rekod)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Tarikh</th>
+        <th>Perkara / Rujukan</th>
+        <th style="text-align:right;">Wang Masuk</th>
+        <th style="text-align:right;">Wang Keluar</th>
+        <th style="text-align:right;">Baki</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="2">JUMLAH KESELURUHAN (${escapeHtml(payload.periodLabel)})</td>
+        <td style="text-align:right;font-family:monospace;color:#14532D;">${escapeHtml(
+          formatMYR(payload.totalIncome)
+        )}</td>
+        <td style="text-align:right;font-family:monospace;color:#991B1B;">${escapeHtml(
+          formatMYR(payload.totalExpense)
+        )}</td>
+        <td style="text-align:right;font-family:monospace;color:${
+          isPositive ? '#14532D' : '#991B1B'
+        };">${escapeHtml(formatMYR(payload.netBalance))}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="footer-note">
+    <span>Laporan Analisis Kewangan Rasmi · Ss Homestay &amp; Roomstay (Admin)</span>
+    <span>Tempoh: ${escapeHtml(payload.periodLabel)}</span>
+  </div>
+</body>
+</html>`;
+
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  document.body.appendChild(iframe);
+
+  const cleanup = () => {
+    window.setTimeout(() => {
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    }, 1000);
+  };
+
+  iframe.onload = () => {
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } finally {
+      cleanup();
+    }
+  };
+
+  iframe.srcdoc = html;
+}
+

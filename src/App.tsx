@@ -48,6 +48,7 @@ import { PropertyInfoSection } from './components/PropertyInfoSection';
 import { GallerySection } from './components/GallerySection';
 import { LocationSection } from './components/LocationSection';
 import { FeedbackSection } from './components/FeedbackSection';
+import { AdminPasswordModal } from './components/AdminPasswordModal';
 
 function toMillis(val: unknown): number {
   if (!val) return 0;
@@ -72,6 +73,7 @@ function HomestayApp() {
 
   const [selectedUnit, setSelectedUnit] = useState<UnitType>('homestay');
   const [adminUnlocked, setAdminUnlocked] = useState<boolean>(false);
+  const [adminModalOpen, setAdminModalOpen] = useState<boolean>(false);
   const [bookingAccessKey, setBookingAccessKey] = useState<string | null>(null);
 
   // Google Sheet CSV, Apps Script Webhook & Live OAuth Sheet states
@@ -525,11 +527,32 @@ function HomestayApp() {
     }
   };
 
+  const handleAdminButtonClick = () => {
+    if (adminUnlocked) {
+      scrollToCalendar();
+    } else {
+      setAdminModalOpen(true);
+    }
+  };
+
   return (
     <div id="utama" className="min-h-screen flex flex-col bg-[#F8F9F7] text-[#161B17]">
       <Navbar
         adminUnlocked={adminUnlocked}
-        onBookClick={() => scrollToCalendar(undefined, !adminUnlocked)}
+        onBookClick={handleAdminButtonClick}
+      />
+
+      <AdminPasswordModal
+        open={adminModalOpen}
+        onClose={() => setAdminModalOpen(false)}
+        onUnlockSuccess={(accessKey) => {
+          setBookingAccessKey(accessKey);
+          setAdminUnlocked(true);
+          setAdminModalOpen(false);
+          setTimeout(() => {
+            scrollToCalendar();
+          }, 80);
+        }}
       />
 
       <main className="flex-1">
@@ -576,10 +599,10 @@ function HomestayApp() {
               </button>
               <button
                 type="button"
-                onClick={() => scrollToCalendar(undefined, true)}
+                onClick={handleAdminButtonClick}
                 className="px-4 py-3 rounded-xl border border-[#DDE2DC] bg-[#F8F9F7] text-sm font-medium text-[#161B17] hover:border-[#14532D] hover:text-[#14532D] transition-colors cursor-pointer"
               >
-                {adminUnlocked ? 'Panel Tempahan Admin' : 'Log Masuk Admin'}
+                {adminUnlocked ? 'Panel Admin' : 'ADMIN'}
               </button>
             </div>
           </div>

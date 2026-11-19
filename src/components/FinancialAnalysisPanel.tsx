@@ -4,11 +4,13 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   BarChart3,
+  Calendar,
   Check,
   CheckCircle2,
   Copy,
   FileDown,
   Plus,
+  Printer,
   RefreshCw,
   Search,
   Send,
@@ -44,7 +46,7 @@ import {
   fetchWebhookSheetRows,
 } from '../lib/googleSheets';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { downloadFinanceReportPdf } from '../lib/financePdf';
+import { downloadFinanceReportPdf, printFinanceReport } from '../lib/financePdf';
 
 interface FinancialAnalysisPanelProps {
   user: User | null;
@@ -183,16 +185,35 @@ export function FinancialAnalysisPanel({
     });
   }, [sheetFinanceRows, financeEntries]);
 
-  // Available months dropdown options
+  // Available months dropdown options (all 12 months of active years + transaction counts)
   const monthOptions = useMemo(() => {
-    const set = new Set<string>();
+    const counts = new Map<string, number>();
+    const years = new Set<number>([Number(todayStr.slice(0, 4)) || new Date().getFullYear()]);
+
     unifiedRows.forEach((r) => {
       if (r.date && r.date.length >= 7) {
-        set.add(r.date.slice(0, 7));
+        const key = r.date.slice(0, 7);
+        counts.set(key, (counts.get(key) || 0) + 1);
+        const y = Number(key.slice(0, 4));
+        if (y >= 2020 && y <= 2100) years.add(y);
       }
     });
-    return Array.from(set).sort().reverse();
-  }, [unifiedRows]);
+
+    const allKeys: string[] = [];
+    Array.from(years)
+      .sort((a, b) => b - a)
+      .forEach((y) => {
+        for (let m = 12; m >= 1; m--) {
+          allKeys.push(`${y}-${String(m).padStart(2, '0')}`);
+        }
+      });
+
+    return allKeys.map((key) => ({
+      key,
+      label: formatMonthLabel(key),
+      count: counts.get(key) || 0,
+    }));
+  }, [unifiedRows, todayStr]);
 
   // Apply filters and compute cumulative running balance
   const ledgerWithBalance = useMemo(() => {
@@ -485,9 +506,9 @@ export function FinancialAnalysisPanel({
     }
   };
 
-  const handleDownloadPdf = async () => {
-    const periodLabel = monthFilter === 'all' ? 'Semua Tempoh' : formatMonthLabel(monthFilter);
-    await downloadFinanceReportPdf({
+  const buildCurrentReportPayload = () => {
+    const periodLabel = monthFilter === 'all' ? 'Semua Bulan' : formatMonthLabel(monthFilter);
+    return {
       sheetTitle: connectedSheetInfo?.spreadsheetTitle || 'SISTEM BOOKING AI STUDIO',
       periodLabel,
       totalIncome: kpis.totalIncome,
@@ -501,7 +522,15 @@ export function FinancialAnalysisPanel({
         wangKeluar: r.wangKeluar,
         runningBalance: r.runningBalance,
       })),
-    });
+    };
+  };
+
+  const handleDownloadPdf = async () => {
+    await downloadFinanceReportPdf(buildCurrentReportPayload());
+  };
+
+  const handlePrintReport = async () => {
+    await printFinanceReport(buildCurrentReportPayload());
   };
 
   const quickExpenseSuggestions = [
@@ -518,45 +547,83 @@ export function FinancialAnalysisPanel({
       className="mt-10 bg-white border border-[#DDE2DC] rounded-2xl p-5 sm:p-7 scroll-mt-24"
     >
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-[#DDE2DC]">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2 text-xs font-medium text-[#14532D]">
-            <Wallet className="w-4 h-4" />
-            <span>Analisis Kewangan Admin · Pautan Google Sheet</span>
+      <div className="flex flex-col gap-4 pb-6 border-b border-[#DDE2DC]">
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-medium text-[#14532D]">
+              <Wallet className="w-4 h-4" />
+              <span>Analisis Kewangan Admin · Pautan Google Sheet</span>
+            </div>
+            <h3 className="font-display text-2xl sm:text-3xl font-semibold text-[#161B17]">
+              Wang Masuk, Wang Keluar, Perkara &amp; Baki
+            </h3>
+            <p className="text-xs sm:text-sm text-[#525C54] leading-relaxed max-w-2xl">
+              Diselaraskan terus dengan helaian{' '}
+              <strong className="text-[#161B17]">
+                {connectedSheetInfo?.spreadsheetTitle || 'SISTEM BOOKING AI STUDIO'}
+              </strong>
+              : kolum <strong className="text-[#14532D]">JUMLAH</strong> sebagai Wang Masuk, kolum{' '}
+              <strong className="text-[#161B17]">PERKARA</strong> &amp;{' '}
+              <strong className="text-[#991B1B]">WANG KELUAR</strong> sebagai perbelanjaan, serta kiraan{' '}
+              <strong className="text-[#161B17]">Baki</strong> automatik.
+            </p>
           </div>
-          <h3 className="font-display text-2xl sm:text-3xl font-semibold text-[#161B17]">
-            Wang Masuk, Wang Keluar, Perkara &amp; Baki
-          </h3>
-          <p className="text-xs sm:text-sm text-[#525C54] leading-relaxed max-w-2xl">
-            Diselaraskan terus dengan helaian{' '}
-            <strong className="text-[#161B17]">
-              {connectedSheetInfo?.spreadsheetTitle || 'SISTEM BOOKING AI STUDIO'}
-            </strong>
-            : kolum <strong className="text-[#14532D]">JUMLAH</strong> sebagai Wang Masuk, kolum{' '}
-            <strong className="text-[#161B17]">PERKARA</strong> &amp;{' '}
-            <strong className="text-[#991B1B]">WANG KELUAR</strong> sebagai perbelanjaan, serta kiraan{' '}
-            <strong className="text-[#161B17]">Baki</strong> automatik.
-          </p>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           <button
             type="button"
             onClick={handleRefreshFromSheet}
             disabled={refreshingSheet}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#DDE2DC] bg-[#F8F9F7] text-xs font-semibold text-[#161B17] hover:border-[#14532D] hover:text-[#14532D] transition-colors cursor-pointer disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#DDE2DC] bg-[#F8F9F7] text-xs font-semibold text-[#161B17] hover:border-[#14532D] hover:text-[#14532D] transition-colors cursor-pointer disabled:opacity-50 self-start shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshingSheet ? 'animate-spin' : ''}`} />
             {refreshingSheet ? 'Menyelaras...' : 'Segar Semula Sheet'}
           </button>
-          <button
-            type="button"
-            onClick={() => void handleDownloadPdf()}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#14532D] text-white text-xs font-semibold hover:bg-[#166534] transition-colors cursor-pointer"
-          >
-            <FileDown className="w-3.5 h-3.5" />
-            Muat Turun Laporan PDF
-          </button>
+        </div>
+
+        {/* Dedicated Monthly Print & PDF Bar */}
+        <div className="p-3.5 rounded-xl bg-[#F8F9F7] border border-[#DDE2DC] flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 flex-1">
+            <label
+              htmlFor="print-month-select"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#161B17] whitespace-nowrap"
+            >
+              <Calendar className="w-4 h-4 text-[#14532D]" />
+              Pilih Bulan Laporan / Cetakan:
+            </label>
+            <select
+              id="print-month-select"
+              value={monthFilter}
+              onChange={(e) => setMonthFilter(e.target.value)}
+              className="px-3 py-2 text-xs sm:text-sm font-medium rounded-lg border border-[#C6DEC9] bg-white text-[#161B17] focus:outline-none focus:border-[#14532D] cursor-pointer sm:min-w-[230px]"
+            >
+              <option value="all">Semua Bulan ({unifiedRows.length} rekod)</option>
+              {monthOptions.map((opt) => (
+                <option key={opt.key} value={opt.key}>
+                  {opt.label}
+                  {opt.count > 0 ? ` (${opt.count} rekod)` : ' (Tiada rekod)'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => void handlePrintReport()}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#14532D] bg-white text-[#14532D] text-xs font-semibold hover:bg-[#F1F7F3] transition-colors cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              Cetak Laporan
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleDownloadPdf()}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#14532D] text-white text-xs font-semibold hover:bg-[#166534] transition-colors cursor-pointer"
+            >
+              <FileDown className="w-3.5 h-3.5" />
+              Muat Turun PDF
+            </button>
+          </div>
         </div>
       </div>
 
@@ -951,9 +1018,10 @@ export function FinancialAnalysisPanel({
             className="px-2.5 py-1.5 text-xs rounded-lg border border-[#DDE2DC] bg-[#F8F9F7] text-[#161B17] cursor-pointer"
           >
             <option value="all">Semua Bulan ({unifiedRows.length} rekod)</option>
-            {monthOptions.map((key) => (
-              <option key={key} value={key}>
-                {formatMonthLabel(key)}
+            {monthOptions.map((opt) => (
+              <option key={opt.key} value={opt.key}>
+                {opt.label}
+                {opt.count > 0 ? ` (${opt.count})` : ''}
               </option>
             ))}
           </select>

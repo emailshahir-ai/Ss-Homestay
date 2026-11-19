@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Menu, X } from 'lucide-react';
+import { Lock, Menu, Unlock, X } from 'lucide-react';
 
 export interface NavMenuItem {
   id: string;
@@ -8,12 +8,12 @@ export interface NavMenuItem {
 }
 
 export const MAIN_MENU_ITEMS: NavMenuItem[] = [
-  { id: 'maklumat-homestay', label: '1. Maklumat Homestay', href: '#maklumat-homestay' },
-  { id: 'maklumat-roomstay', label: '2. Maklumat Roomstay', href: '#maklumat-roomstay' },
-  { id: 'gambar-homestay', label: '3. Gambar Homestay', href: '#gambar-homestay' },
-  { id: 'gambar-roomstay', label: '4. Gambar Roomstay', href: '#gambar-roomstay' },
-  { id: 'lokasi', label: '5. Lokasi', href: '#lokasi' },
-  { id: 'maklum-balas', label: '6. Maklum Balas Pengguna', href: '#maklum-balas' },
+  { id: 'maklumat-homestay', label: 'Maklumat Homestay', href: '#maklumat-homestay' },
+  { id: 'maklumat-roomstay', label: 'Maklumat Roomstay', href: '#maklumat-roomstay' },
+  { id: 'gambar-homestay', label: 'Gambar Homestay', href: '#gambar-homestay' },
+  { id: 'gambar-roomstay', label: 'Gambar Roomstay', href: '#gambar-roomstay' },
+  { id: 'lokasi', label: 'Lokasi', href: '#lokasi' },
+  { id: 'maklum-balas', label: 'Maklum Balas Pengguna', href: '#maklum-balas' },
 ];
 
 interface NavbarProps {
@@ -25,64 +25,74 @@ export function Navbar({ onBookClick, adminUnlocked = false }: NavbarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-40 bg-[#F8F9F7]/95 backdrop-blur-sm border-b border-[#DDE2DC]">
-      <div className="max-w-[1360px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-6">
-        {/* Zone 1: Brand Wordmark */}
-        <a
-          href="#utama"
-          className="font-display text-lg font-semibold tracking-tight text-[#161B17] whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#14532D]"
-        >
-          Ss Homestay & Roomstay
-        </a>
+    <header className="sticky top-0 z-40 shadow-xs">
+      {/* Top Brand & Admin Row */}
+      <div className="bg-[#F8F9F7]/95 backdrop-blur-sm border-b border-[#DDE2DC]">
+        <div className="max-w-[1360px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+          <a
+            href="#utama"
+            className="font-display text-lg font-semibold tracking-tight text-[#161B17] whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#14532D]"
+          >
+            Ss Homestay & Roomstay
+          </a>
 
-        {/* Zone 2: 6 Requested Menu Links */}
-        <nav
-          aria-label="Menu Utama"
-          className="hidden xl:flex items-center gap-5 text-[13px] font-medium text-[#525C54]"
-        >
-          {MAIN_MENU_ITEMS.map((item) => (
-            <a
-              key={item.id}
-              href={item.href}
-              className="hover:text-[#14532D] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 py-1"
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={onBookClick}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs sm:text-sm font-semibold tracking-wide text-white bg-[#14532D] rounded-lg hover:bg-[#166534] transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#14532D]"
             >
-              {item.label}
-            </a>
-          ))}
-        </nav>
+              {adminUnlocked ? (
+                <Unlock className="w-3.5 h-3.5" aria-hidden="true" />
+              ) : (
+                <Lock className="w-3.5 h-3.5" aria-hidden="true" />
+              )}
+              <span>ADMIN</span>
+            </button>
 
-        {/* Zone 3: Single Primary Action */}
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={onBookClick}
-            className="px-4 py-2 text-xs sm:text-sm font-medium text-white bg-[#14532D] rounded-lg hover:bg-[#166534] transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#14532D]"
-          >
-            {adminUnlocked ? 'Panel Tempahan Admin' : 'Kalendar & Admin'}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setMobileOpen((prev) => !prev)}
-            aria-label={mobileOpen ? 'Tutup menu' : 'Buka menu'}
-            aria-expanded={mobileOpen}
-            className="xl:hidden p-2 rounded-lg border border-[#DDE2DC] text-[#161B17] hover:bg-[#EFF2EE] transition-colors cursor-pointer"
-          >
-            {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
+            <button
+              type="button"
+              onClick={() => setMobileOpen((prev) => !prev)}
+              aria-label={mobileOpen ? 'Tutup menu' : 'Buka menu'}
+              aria-expanded={mobileOpen}
+              className="md:hidden p-2 rounded-lg border border-[#DDE2DC] bg-white text-[#161B17] hover:bg-[#EFF2EE] transition-colors cursor-pointer"
+            >
+              {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Responsive Menu Drawer for Tablet & Mobile */}
+      {/* Colored Navigation Bar (Tablet & Desktop) */}
+      <div className="hidden md:block bg-[#14532D] border-b border-[#0F3F22]">
+        <nav
+          aria-label="Menu Utama"
+          className="max-w-[1360px] mx-auto px-4 sm:px-6 flex items-center justify-between"
+        >
+          <div className="flex items-center divide-x divide-white/15 w-full">
+            {MAIN_MENU_ITEMS.map((item) => (
+              <a
+                key={item.id}
+                href={item.href}
+                className="flex-1 text-center px-3 py-2.5 text-xs lg:text-[13px] font-medium text-white/95 hover:text-white hover:bg-[#166534] transition-colors whitespace-nowrap focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white"
+              >
+                {item.label}
+              </a>
+            ))}
+          </div>
+        </nav>
+      </div>
+
+      {/* Colored Mobile Menu Drawer */}
       {mobileOpen && (
-        <div className="xl:hidden border-t border-[#DDE2DC] bg-white px-4 py-4">
-          <nav aria-label="Menu Mudah Alih" className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className="md:hidden bg-[#14532D] border-b border-[#0F3F22] px-4 py-3">
+          <nav aria-label="Menu Mudah Alih" className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
             {MAIN_MENU_ITEMS.map((item) => (
               <a
                 key={item.id}
                 href={item.href}
                 onClick={() => setMobileOpen(false)}
-                className="px-3 py-2.5 rounded-lg text-sm font-medium text-[#161B17] hover:bg-[#EFF2EE] transition-colors whitespace-nowrap"
+                className="px-3.5 py-2.5 rounded-lg text-sm font-medium text-white/95 hover:text-white hover:bg-[#166534] transition-colors whitespace-nowrap"
               >
                 {item.label}
               </a>

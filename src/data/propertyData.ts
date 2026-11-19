@@ -70,6 +70,14 @@ export const HOMESTAY_PHOTOS: GalleryPhoto[] = [
     aspect: '4:3',
   },
   {
+    id: 'hs-tandas',
+    unitType: 'homestay',
+    title: 'Tandas & Bilik Air',
+    caption: 'Kemudahan tandas dan singki dengan kemasan dinding jubin moden serta kabinet simpanan untuk keselesaan tetamu.',
+    src: '/assets/aistudio/c95dd881-634a-4502-8e67-4bd366d0fb42_8f978f2f.jpg',
+    aspect: '4:3',
+  },
+  {
     id: 'hs-halaman',
     unitType: 'homestay',
     title: 'Halaman Luas & Parkir Berbumbung',
