@@ -18,7 +18,9 @@ import {
   Booking,
   BookingStatus,
   Feedback,
+  FinanceEntry,
   SheetBookingRow,
+  SheetFinanceRow,
   UnitType,
 } from './types/homestay';
 import {
@@ -34,6 +36,7 @@ import {
   DEFAULT_APPS_SCRIPT_URL,
   fetchWebhookSheetRows,
   LEGACY_DEFAULT_APPS_SCRIPT_URLS,
+  parseCsvFinanceText,
   parseCsvText,
 } from './lib/googleSheets';
 import { HERO_IMAGE, HOMESTAY_DETAILS, ROOMSTAY_DETAILS } from './data/propertyData';
@@ -73,7 +76,11 @@ function HomestayApp() {
 
   // Google Sheet CSV, Apps Script Webhook & Live OAuth Sheet states
   const [csvRows, setCsvRows] = useState<SheetBookingRow[]>([]);
+  const [csvFinanceRows, setCsvFinanceRows] = useState<SheetFinanceRow[]>([]);
   const [sheetRows, setSheetRows] = useState<SheetBookingRow[]>([]);
+  const [sheetFinanceRows, setSheetFinanceRows] = useState<SheetFinanceRow[]>([]);
+  const [financeEntries, setFinanceEntries] = useState<FinanceEntry[]>([]);
+  const [financeLoading, setFinanceLoading] = useState<boolean>(false);
   const [sheetSourceMode, setSheetSourceMode] = useState<'csv' | 'live-sheet' | 'apps-script'>('csv');
   const [sheetLoading, setSheetLoading] = useState<boolean>(true);
   const [sheetsAccessToken, setSheetsAccessToken] = useState<string | null>(null);
@@ -112,9 +119,13 @@ function HomestayApp() {
       try {
         const csvRes = await fetch(ATTACHED_SHEET_CSV_URL);
         if (csvRes.ok && active) {
-          const parsed = parseCsvText(await csvRes.text());
+          const rawCsv = await csvRes.text();
+          const parsed = parseCsvText(rawCsv);
+          const parsedFin = parseCsvFinanceText(rawCsv);
           setCsvRows(parsed);
+          setCsvFinanceRows(parsedFin);
           setSheetRows(parsed);
+          setSheetFinanceRows(parsedFin);
         }
       } catch (err) {
         console.error('Gagal membaca CSV lampiran:', err);
@@ -124,6 +135,7 @@ function HomestayApp() {
         const liveRes = await fetchWebhookSheetRows(DEFAULT_APPS_SCRIPT_URL);
         if (active) {
           setSheetRows(liveRes.rows);
+          setSheetFinanceRows(liveRes.financeRows);
           setSheetSourceMode('apps-script');
           setConnectedSheetInfo({
             spreadsheetId: 'apps-script',
@@ -303,6 +315,7 @@ function HomestayApp() {
           fetchWebhookSheetRows(effectiveUrl)
             .then((res) => {
               setSheetRows(res.rows);
+              setSheetFinanceRows(res.financeRows);
               setSheetSourceMode('apps-script');
               setConnectedSheetInfo({
                 spreadsheetId: 'apps-script',
@@ -321,6 +334,54 @@ function HomestayApp() {
     );
 
     return () => unsubSettings();
+  }, [authReady, user, adminUnlocked, bookingAccessKey]);
+
+  // Admin-protected financial entries listener (Wang Keluar & Manual Wang Masuk)
+  useEffect(() => {
+    if (!authReady) return;
+    const isPrimaryAdmin = Boolean(user && user.email === ADMIN_EMAIL && user.emailVerified);
+    if (!isPrimaryAdmin && (!adminUnlocked || !bookingAccessKey)) {
+      setFinanceEntries([]);
+      setFinanceLoading(false);
+      return;
+    }
+
+    setFinanceLoading(true);
+    const financeQuery = isPrimaryAdmin
+      ? collection(db, 'finance_entries')
+      : query(collection(db, 'finance_entries'), where('accessKey', '==', bookingAccessKey));
+
+    const unsubFinance = onSnapshot(
+      financeQuery,
+      (snapshot) => {
+        const items: FinanceEntry[] = snapshot.docs
+          .map((docSnap) => {
+            const data = docSnap.data();
+            return {
+              id: docSnap.id,
+              userId: String(data.userId || ''),
+              date: String(data.date || ''),
+              entryType: (data.entryType === 'income' ? 'income' : 'expense') as 'expense' | 'income',
+              perkara: String(data.perkara || ''),
+              amount: Number(data.amount || 0),
+              syncedToSheet: Boolean(data.syncedToSheet),
+              accessKey: data.accessKey ? String(data.accessKey) : undefined,
+              createdAt: data.createdAt,
+              updatedAt: data.updatedAt,
+            };
+          })
+          .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+
+        setFinanceEntries(items);
+        setFinanceLoading(false);
+      },
+      (error) => {
+        setFinanceLoading(false);
+        handleFirestoreError(error, OperationType.LIST, 'finance_entries');
+      }
+    );
+
+    return () => unsubFinance();
   }, [authReady, user, adminUnlocked, bookingAccessKey]);
 
   // Merge Firestore availability slots with synced Google Sheet rows (deduplicated)
@@ -374,21 +435,25 @@ function HomestayApp() {
 
   const handleLiveRowsLoaded = (
     rows: SheetBookingRow[],
+    financeRows: SheetFinanceRow[],
     spreadsheetId: string,
     spreadsheetTitle: string,
     tabTitle: string
   ) => {
     setSheetRows(rows);
+    setSheetFinanceRows(financeRows);
     setSheetSourceMode('live-sheet');
     setConnectedSheetInfo({ spreadsheetId, spreadsheetTitle, tabTitle });
   };
 
   const handleAppsScriptRowsLoaded = (
     rows: SheetBookingRow[],
+    financeRows: SheetFinanceRow[],
     spreadsheetTitle: string,
     tabTitle: string
   ) => {
     setSheetRows(rows);
+    setSheetFinanceRows(financeRows);
     setSheetSourceMode('apps-script');
     setConnectedSheetInfo({
       spreadsheetId: 'apps-script',
@@ -423,6 +488,7 @@ function HomestayApp() {
     if (!hasExistingWebhookDoc) {
       setSheetsWebhookUrl(null);
       setSheetRows(csvRows);
+      setSheetFinanceRows(csvFinanceRows);
       setSheetSourceMode('csv');
       setConnectedSheetInfo(null);
       return;
@@ -431,12 +497,14 @@ function HomestayApp() {
     setSheetsWebhookUrl(null);
     setHasExistingWebhookDoc(false);
     setSheetRows(csvRows);
+    setSheetFinanceRows(csvFinanceRows);
     setSheetSourceMode('csv');
     setConnectedSheetInfo(null);
   };
 
   const handleResetToCsv = () => {
     setSheetRows(csvRows);
+    setSheetFinanceRows(csvFinanceRows);
     setSheetSourceMode('csv');
     setConnectedSheetInfo(null);
   };
@@ -566,6 +634,9 @@ function HomestayApp() {
           selectedUnit={selectedUnit}
           onSelectUnit={setSelectedUnit}
           sheetRows={sheetRows}
+          sheetFinanceRows={sheetFinanceRows}
+          financeEntries={financeEntries}
+          financeLoading={financeLoading}
           sheetSourceMode={sheetSourceMode}
           sheetLoading={sheetLoading}
           sheetsAccessToken={sheetsAccessToken}

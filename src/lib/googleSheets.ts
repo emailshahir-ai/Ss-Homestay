@@ -1,14 +1,15 @@
-import { SheetBookingRow, UnitType } from '../types/homestay';
+import { SheetBookingRow, SheetFinanceRow, UnitType } from '../types/homestay';
 
 export const ATTACHED_SHEET_CSV_URL = '/assets/aistudio/SISTEM_BOOKING__Responses__d1144951';
 
 export const LEGACY_DEFAULT_APPS_SCRIPT_URLS = [
   'https://script.google.com/macros/s/AKfycbzBgO6lg7Dm9rIyaqyaVHnDcmzDU1N3iBod8sKZxePTH2OUDbJIAvafFj_F2tKchGy1bA/exec',
   'https://script.google.com/macros/s/AKfycbzoS8cGRzzGvn8oapem_PwUSbJSS_6YBvcKR07VMQ2568WnSMmlW83GfRBghoX0f2U/exec',
+  'https://script.google.com/macros/s/AKfycbxoWYYDwV0UKfHHQdm_Tw3LYkfOneYsONtQ5qMom-aMR0p5XpvmWMX-jxEVeriIjg/exec',
 ];
 
 export const DEFAULT_APPS_SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbxoWYYDwV0UKfHHQdm_Tw3LYkfOneYsONtQ5qMom-aMR0p5XpvmWMX-jxEVeriIjg/exec';
+  'https://script.google.com/macros/s/AKfycbw9N8C6Jq534TZkIBanbXQQgR3HPjVo3G7BsKP64X3RDcaw5HXZVl8o0N78Tb7ID68/exec';
 
 export function extractSpreadsheetId(input: string): string | null {
   const trimmed = input.trim();
@@ -49,7 +50,13 @@ export function parseSheetDate(raw: string): string | null {
     }
   }
 
-  const slashMatch = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  // Also support date + time strings like "11/19/2026 8:22:31" or "2026-11-19 08:22:31"
+  const dateOnlyPart = val.split(/\s+/)[0] || val;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnlyPart)) {
+    return dateOnlyPart;
+  }
+
+  const slashMatch = dateOnlyPart.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (slashMatch) {
     const p1 = Number(slashMatch[1]);
     const p2 = Number(slashMatch[2]);
@@ -126,15 +133,34 @@ export function parseSheetValues(
   const idxName = header.findIndex((h) => h.includes('NAMA') || h.includes('NAME'));
   const idxPhone = header.findIndex((h) => h.includes('TELEFON') || h.includes('PHONE'));
   const idxCheckIn = header.findIndex((h) => h.includes('MASUK') || h.includes('CHECK IN'));
-  const idxCheckOut = header.findIndex((h) => h.includes('KELUAR') || h.includes('CHECK OUT'));
+  const idxCheckOut = header.findIndex(
+    (h) => (h.includes('TARIKH KELUAR') || h.includes('CHECK OUT') || (h.includes('KELUAR') && !h.includes('WANG')))
+  );
   const idxChoice = header.findIndex((h) => h.includes('PILIHAN') || h.includes('MENGINAP') || h.includes('UNIT'));
   const idxTotal = header.findIndex(
     (h) =>
       h.includes('JUMLAH') ||
+      h.includes('WANG MASUK') ||
       h.includes('TOTAL') ||
       h.includes('HARGA') ||
       h.includes('BAYARAN') ||
       h.includes('AMOUNT')
+  );
+  const idxPerkara = header.findIndex(
+    (h) =>
+      h.includes('PERKARA') ||
+      h.includes('CATATAN') ||
+      h.includes('KETERANGAN') ||
+      h.includes('ITEM') ||
+      h.includes('DESCRIPTION')
+  );
+  const idxExpense = header.findIndex(
+    (h) =>
+      h.includes('WANG KELUAR') ||
+      h.includes('PERBELANJAAN') ||
+      h.includes('BELANJA') ||
+      h.includes('KOS') ||
+      h.includes('EXPENSE')
   );
 
   const colTs = idxTimestamp >= 0 ? idxTimestamp : 0;
@@ -144,6 +170,8 @@ export function parseSheetValues(
   const colOut = idxCheckOut >= 0 ? idxCheckOut : 4;
   const colChoice = idxChoice >= 0 ? idxChoice : 5;
   const colTotal = idxTotal >= 0 ? idxTotal : 6;
+  const colPerkara = idxPerkara >= 0 ? idxPerkara : 7;
+  const colExpense = idxExpense >= 0 ? idxExpense : 8;
 
   const parsed: SheetBookingRow[] = [];
 
@@ -159,6 +187,8 @@ export function parseSheetValues(
     const rawChoice = (cols[colChoice] || '').trim();
     const unitType = parseStayChoice(rawChoice);
     const totalAmount = parseSheetAmount(cols[colTotal] || '');
+    const perkara = (cols[colPerkara] || '').trim() || undefined;
+    const expenseAmount = parseSheetAmount(cols[colExpense] || '');
 
     if (!name || !checkIn || !checkOut || !unitType || checkOut <= checkIn) {
       continue;
@@ -174,6 +204,119 @@ export function parseSheetValues(
       unitType,
       rawChoice: rawChoice.toUpperCase() || (unitType === 'homestay' ? 'H' : 'R'),
       totalAmount,
+      perkara,
+      expenseAmount,
+      source,
+    });
+  }
+
+  return parsed;
+}
+
+export function parseSheetFinanceValues(
+  rows: string[][],
+  source: 'csv' | 'live-sheet'
+): SheetFinanceRow[] {
+  if (rows.length === 0) return [];
+
+  const header = rows[0].map((h) => h.trim().toUpperCase());
+  const idxTimestamp = header.findIndex((h) => h.includes('TIMESTAMP'));
+  const idxName = header.findIndex((h) => h.includes('NAMA') || h.includes('NAME'));
+  const idxCheckIn = header.findIndex((h) => h.includes('MASUK') || h.includes('CHECK IN') || h === 'TARIKH');
+  const idxCheckOut = header.findIndex(
+    (h) => (h.includes('TARIKH KELUAR') || h.includes('CHECK OUT') || (h.includes('KELUAR') && !h.includes('WANG')))
+  );
+  const idxChoice = header.findIndex((h) => h.includes('PILIHAN') || h.includes('MENGINAP') || h.includes('UNIT'));
+  const idxTotal = header.findIndex(
+    (h) =>
+      h.includes('JUMLAH') ||
+      h.includes('WANG MASUK') ||
+      h.includes('TOTAL') ||
+      h.includes('HARGA') ||
+      h.includes('BAYARAN') ||
+      h.includes('AMOUNT')
+  );
+  const idxPerkara = header.findIndex(
+    (h) =>
+      h.includes('PERKARA') ||
+      h.includes('CATATAN') ||
+      h.includes('KETERANGAN') ||
+      h.includes('ITEM') ||
+      h.includes('DESCRIPTION')
+  );
+  const idxExpense = header.findIndex(
+    (h) =>
+      h.includes('WANG KELUAR') ||
+      h.includes('PERBELANJAAN') ||
+      h.includes('BELANJA') ||
+      h.includes('KOS') ||
+      h.includes('EXPENSE')
+  );
+
+  const colTs = idxTimestamp >= 0 ? idxTimestamp : 0;
+  const colName = idxName >= 0 ? idxName : 1;
+  const colIn = idxCheckIn >= 0 ? idxCheckIn : 3;
+  const colOut = idxCheckOut >= 0 ? idxCheckOut : 4;
+  const colChoice = idxChoice >= 0 ? idxChoice : 5;
+  const colTotal = idxTotal >= 0 ? idxTotal : 6;
+  const colPerkara = idxPerkara >= 0 ? idxPerkara : 7;
+  const colExpense = idxExpense >= 0 ? idxExpense : 8;
+
+  const parsed: SheetFinanceRow[] = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const cols = rows[i];
+    if (!cols || cols.every((c) => !c.trim())) continue;
+
+    const timestamp = (cols[colTs] || '').trim();
+    const name = (cols[colName] || '').trim();
+    const checkIn = parseSheetDate(cols[colIn] || '');
+    const checkOut = parseSheetDate(cols[colOut] || '');
+    const rawChoice = (cols[colChoice] || '').trim();
+    const unitType = parseStayChoice(rawChoice);
+    const wangMasuk = parseSheetAmount(cols[colTotal] || '') ?? 0;
+    const perkaraRaw = (cols[colPerkara] || '').trim();
+    const wangKeluar = parseSheetAmount(cols[colExpense] || '') ?? 0;
+
+    if (wangMasuk <= 0 && wangKeluar <= 0 && !perkaraRaw) {
+      continue;
+    }
+
+    const derivedDate = checkIn || parseSheetDate(timestamp) || '';
+    const unitLabel =
+      unitType === 'homestay' ? 'Ss Homestay' : unitType === 'roomstay' ? 'Ss Roomstay' : '';
+
+    let perkara = perkaraRaw;
+    if (!perkara) {
+      if (name && unitLabel) {
+        perkara = `Tempahan ${unitLabel} · ${name}`;
+      } else if (name) {
+        perkara = `Tempahan · ${name}`;
+      } else if (wangKeluar > 0) {
+        perkara = `Perbelanjaan #${i}`;
+      } else {
+        perkara = `Bayaran Masuk #${i}`;
+      }
+    } else if (name && wangMasuk > 0 && wangKeluar === 0 && !perkara.toLowerCase().includes(name.toLowerCase())) {
+      perkara = `${perkara} (${name})`;
+    }
+
+    // Append stay dates context cleanly if booking row without custom perkara
+    if (!perkaraRaw && name && checkIn && checkOut) {
+      perkara = `${unitLabel ? `Tempahan ${unitLabel}` : 'Tempahan'} · ${name}`;
+    }
+
+    parsed.push({
+      id: `fin_${source}_${i}_${derivedDate || 'nodate'}`,
+      rowIndex: i + 1,
+      timestamp: timestamp || '—',
+      date: derivedDate,
+      name,
+      unitType,
+      rawChoice: rawChoice.toUpperCase(),
+      perkara,
+      wangMasuk,
+      wangKeluar,
       source,
     });
   }
@@ -185,6 +328,12 @@ export function parseCsvText(csvText: string): SheetBookingRow[] {
   const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
   const matrix = lines.map(splitCsvLine);
   return parseSheetValues(matrix, 'csv');
+}
+
+export function parseCsvFinanceText(csvText: string): SheetFinanceRow[] {
+  const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const matrix = lines.map(splitCsvLine);
+  return parseSheetFinanceValues(matrix, 'csv');
 }
 
 export interface SpreadsheetMetadata {
@@ -230,11 +379,11 @@ function formatA1SheetTitle(sheetTitle: string): string {
   return `'${sheetTitle.replace(/'/g, "''")}'`;
 }
 
-export async function fetchSheetBookingRows(
+export async function fetchSheetAllRows(
   spreadsheetId: string,
   sheetTitle: string,
   accessToken: string
-): Promise<SheetBookingRow[]> {
+): Promise<{ rows: SheetBookingRow[]; financeRows: SheetFinanceRow[] }> {
   const range = `${formatA1SheetTitle(sheetTitle)}!A1:Z1000`;
   const res = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
@@ -256,7 +405,19 @@ export async function fetchSheetBookingRows(
 
   const json = await res.json();
   const values: string[][] = Array.isArray(json?.values) ? json.values : [];
-  return parseSheetValues(values, 'live-sheet');
+  return {
+    rows: parseSheetValues(values, 'live-sheet'),
+    financeRows: parseSheetFinanceValues(values, 'live-sheet'),
+  };
+}
+
+export async function fetchSheetBookingRows(
+  spreadsheetId: string,
+  sheetTitle: string,
+  accessToken: string
+): Promise<SheetBookingRow[]> {
+  const res = await fetchSheetAllRows(spreadsheetId, sheetTitle, accessToken);
+  return res.rows;
 }
 
 function toSheetSlashDate(yyyyMmDd: string): string {
@@ -327,6 +488,57 @@ export async function appendBookingToSheet(
   }
 }
 
+export async function appendFinanceToSheet(
+  spreadsheetId: string,
+  sheetTitle: string,
+  accessToken: string,
+  payload: {
+    date: string;
+    entryType: 'expense' | 'income';
+    perkara: string;
+    amount: number;
+  }
+): Promise<void> {
+  const range = `${formatA1SheetTitle(sheetTitle)}!A:I`;
+  const cleanAmount = Number(payload.amount.toFixed(2));
+  const values = [
+    [
+      formatNowSheetTimestamp(),
+      '',
+      '',
+      payload.date ? toSheetSlashDate(payload.date) : '',
+      '',
+      '',
+      payload.entryType === 'income' ? cleanAmount : '',
+      payload.perkara.trim(),
+      payload.entryType === 'expense' ? cleanAmount : '',
+    ],
+  ];
+
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+      spreadsheetId
+    )}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ values }),
+    }
+  );
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error('Sesi kebenaran Google Sheets telah tamat. Sila klik "Sign in with Google" semula.');
+    }
+    const errBody = await res.json().catch(() => ({}));
+    const msg = errBody?.error?.message || `Gagal menambah rekod kewangan ke Google Sheet (HTTP ${res.status}).`;
+    throw new Error(msg);
+  }
+}
+
 export const APPS_SCRIPT_REGEX =
   /^https:\/\/script\.google\.com\/macros\/s\/[a-zA-Z0-9_-]+\/exec$/;
 
@@ -341,6 +553,7 @@ export const APPS_SCRIPT_TEMPLATE = `function doGet() {
   return ContentService
     .createTextOutput(JSON.stringify({
       ok: true,
+      scriptVersion: 9,
       title: ss.getName(),
       tab: sheet.getName(),
       values: values
@@ -359,11 +572,22 @@ function doPost(e) {
       }
     }
     var params = (e && e.parameter) ? e.parameter : {};
-    var nama = data.nama || data.name || params.nama || params.name || '';
-    var telefon = data.telefon || data.phone || params.telefon || params.phone || '-';
-    var masuk = data.masuk || data.checkIn || params.masuk || params.checkIn || '';
-    var keluar = data.keluar || data.checkOut || params.keluar || params.checkOut || '';
-    var pilihan = data.pilihan || data.choice || params.pilihan || params.choice || 'H';
+    var action = String(data.action || params.action || 'booking').toLowerCase();
+    var ts = data.timestamp || params.timestamp || Utilities.formatDate(new Date(), 'Asia/Kuala_Lumpur', 'M/d/yyyy HH:mm:ss');
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheets()[0];
+    if (String(sheet.getRange(1, 7).getValue()).trim() === '') sheet.getRange(1, 7).setValue('JUMLAH');
+    if (String(sheet.getRange(1, 8).getValue()).trim() === '') sheet.getRange(1, 8).setValue('PERKARA');
+    if (String(sheet.getRange(1, 9).getValue()).trim() === '') sheet.getRange(1, 9).setValue('WANG KELUAR');
+
+    var perkara = String(data.perkara || params.perkara || '').trim();
+    var wangKeluarRaw = (data.wangKeluar !== undefined && data.wangKeluar !== '')
+      ? data.wangKeluar
+      : (params.wangKeluar !== undefined ? params.wangKeluar : '');
+    var wangKeluar = wangKeluarRaw === '' ? '' : Number(wangKeluarRaw);
+    if (wangKeluar !== '' && isNaN(wangKeluar)) wangKeluar = wangKeluarRaw;
+
     var jumlahRaw = (data.jumlah !== undefined && data.jumlah !== '')
       ? data.jumlah
       : (data.totalAmount !== undefined && data.totalAmount !== '')
@@ -373,7 +597,32 @@ function doPost(e) {
       : (params.totalAmount !== undefined ? params.totalAmount : '');
     var jumlah = jumlahRaw === '' ? '' : Number(jumlahRaw);
     if (jumlah !== '' && isNaN(jumlah)) jumlah = jumlahRaw;
-    var ts = data.timestamp || params.timestamp || Utilities.formatDate(new Date(), 'Asia/Kuala_Lumpur', 'M/d/yyyy HH:mm:ss');
+
+    // Mode 1: Rekod Kewangan (Wang Keluar / Wang Masuk Lain-lain)
+    if (action === 'finance' || action === 'expense' || (perkara && (wangKeluar !== '' || jumlah !== '') && !(data.keluar || params.keluar))) {
+      var tarikh = data.tarikh || data.date || data.masuk || params.tarikh || params.date || params.masuk || '';
+      if (!perkara || (wangKeluar === '' && jumlah === '')) {
+        return ContentService
+          .createTextOutput(JSON.stringify({ ok: false, error: 'Maklumat perkara atau jumlah kewangan tidak lengkap.' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      sheet.appendRow([ts, '', '', tarikh, '', '', jumlah, perkara, wangKeluar]);
+      var finRow = sheet.getLastRow();
+      if (jumlah !== '') sheet.getRange(finRow, 7).setValue(jumlah);
+      if (perkara !== '') sheet.getRange(finRow, 8).setValue(perkara);
+      if (wangKeluar !== '') sheet.getRange(finRow, 9).setValue(wangKeluar);
+      SpreadsheetApp.flush();
+      return ContentService
+        .createTextOutput(JSON.stringify({ ok: true, scriptVersion: 9, row: finRow, perkara: perkara, jumlah: jumlah, wangKeluar: wangKeluar }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // Mode 2: Rekod Tempahan (Homestay / Roomstay)
+    var nama = data.nama || data.name || params.nama || params.name || '';
+    var telefon = data.telefon || data.phone || params.telefon || params.phone || '-';
+    var masuk = data.masuk || data.checkIn || params.masuk || params.checkIn || '';
+    var keluar = data.keluar || data.checkOut || params.keluar || params.checkOut || '';
+    var pilihan = data.pilihan || data.choice || params.pilihan || params.choice || 'H';
 
     if (!nama || !masuk || !keluar) {
       return ContentService
@@ -381,12 +630,7 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheets()[0];
-    if (String(sheet.getRange(1, 7).getValue()).trim() === '') {
-      sheet.getRange(1, 7).setValue('JUMLAH');
-    }
-    sheet.appendRow([ts, nama, telefon, masuk, keluar, pilihan, jumlah]);
+    sheet.appendRow([ts, nama, telefon, masuk, keluar, pilihan, jumlah, perkara, wangKeluar]);
     var writtenRow = sheet.getLastRow();
     if (jumlah !== '' && String(sheet.getRange(writtenRow, 7).getValue()).trim() === '') {
       sheet.getRange(writtenRow, 7).setValue(jumlah);
@@ -419,11 +663,14 @@ function parseWebhookObjectRows(items: Array<Record<string, unknown>>): SheetBoo
     const rawTotal = String(
       item.jumlah ?? item.JUMLAH ?? item['jumlah (rm)'] ?? item.totalAmount ?? item.total ?? item.amount ?? ''
     ).trim();
+    const perkara = String(item.perkara ?? item.PERKARA ?? item.catatan ?? '').trim() || undefined;
+    const rawExpense = String(item.wangKeluar ?? item['WANG KELUAR'] ?? item['wang keluar'] ?? '').trim();
 
     const checkIn = parseSheetDate(rawIn);
     const checkOut = parseSheetDate(rawOut);
     const unitType = parseStayChoice(rawChoice);
     const totalAmount = parseSheetAmount(rawTotal);
+    const expenseAmount = parseSheetAmount(rawExpense);
 
     if (!name || !checkIn || !checkOut || !unitType || checkOut <= checkIn) {
       return;
@@ -439,6 +686,62 @@ function parseWebhookObjectRows(items: Array<Record<string, unknown>>): SheetBoo
       unitType,
       rawChoice: rawChoice.toUpperCase() || (unitType === 'homestay' ? 'H' : 'R'),
       totalAmount,
+      perkara,
+      expenseAmount,
+      source: 'live-sheet',
+    });
+  });
+
+  return parsed;
+}
+
+function parseWebhookObjectFinanceRows(items: Array<Record<string, unknown>>): SheetFinanceRow[] {
+  const parsed: SheetFinanceRow[] = [];
+
+  items.forEach((item, idx) => {
+    const timestamp = String(item.timestamp ?? item.Timestamp ?? '—').trim();
+    const name = String(item.nama ?? item.NAMA ?? item.name ?? item.Name ?? '').trim();
+    const rawIn = String(item.masuk ?? item.MASUK ?? item['tarikh masuk'] ?? item.tarikh ?? item.checkIn ?? '').trim();
+    const rawChoice = String(
+      item.pilihan ?? item.PILIHAN ?? item['pilihan menginap'] ?? item.choice ?? item.unitType ?? ''
+    ).trim();
+    const rawTotal = String(
+      item.jumlah ?? item.JUMLAH ?? item['jumlah (rm)'] ?? item.totalAmount ?? item.total ?? item.amount ?? ''
+    ).trim();
+    const perkaraRaw = String(item.perkara ?? item.PERKARA ?? item.catatan ?? '').trim();
+    const rawExpense = String(item.wangKeluar ?? item['WANG KELUAR'] ?? item['wang keluar'] ?? '').trim();
+
+    const wangMasuk = parseSheetAmount(rawTotal) ?? 0;
+    const wangKeluar = parseSheetAmount(rawExpense) ?? 0;
+    if (wangMasuk <= 0 && wangKeluar <= 0 && !perkaraRaw) {
+      return;
+    }
+
+    const unitType = parseStayChoice(rawChoice);
+    const derivedDate = parseSheetDate(rawIn) || parseSheetDate(timestamp) || '';
+    const unitLabel =
+      unitType === 'homestay' ? 'Ss Homestay' : unitType === 'roomstay' ? 'Ss Roomstay' : '';
+    const perkara =
+      perkaraRaw ||
+      (name && unitLabel
+        ? `Tempahan ${unitLabel} · ${name}`
+        : name
+        ? `Tempahan · ${name}`
+        : wangKeluar > 0
+        ? `Perbelanjaan #${idx + 1}`
+        : `Bayaran Masuk #${idx + 1}`);
+
+    parsed.push({
+      id: `fin_live_${idx + 1}_${derivedDate || 'nodate'}`,
+      rowIndex: idx + 2,
+      timestamp: timestamp || '—',
+      date: derivedDate,
+      name,
+      unitType,
+      rawChoice: rawChoice.toUpperCase(),
+      perkara,
+      wangMasuk,
+      wangKeluar,
       source: 'live-sheet',
     });
   });
@@ -448,7 +751,13 @@ function parseWebhookObjectRows(items: Array<Record<string, unknown>>): SheetBoo
 
 export async function fetchWebhookSheetRows(
   webhookUrl: string
-): Promise<{ title: string; tab: string; rows: SheetBookingRow[] }> {
+): Promise<{
+  title: string;
+  tab: string;
+  rows: SheetBookingRow[];
+  financeRows: SheetFinanceRow[];
+  scriptVersion?: number;
+}> {
   const cleanUrl = webhookUrl.trim();
   if (!isValidAppsScriptUrl(cleanUrl)) {
     throw new Error('Pautan Apps Script Web App tidak sah. Mesti bermula dengan https://script.google.com/macros/s/.../exec');
@@ -466,6 +775,9 @@ export async function fetchWebhookSheetRows(
     throw new Error('Format respons Apps Script tidak sah (bukan JSON).');
   }
 
+  const scriptVersion =
+    typeof json?.scriptVersion === 'number' ? json.scriptVersion : undefined;
+
   // Case 1: { values: [[...], [...]] } or [[...], [...]]
   if (Array.isArray(json?.values) || (Array.isArray(json) && Array.isArray(json[0]))) {
     const values: string[][] = Array.isArray(json?.values) ? json.values : json;
@@ -473,6 +785,8 @@ export async function fetchWebhookSheetRows(
       title: typeof json?.title === 'string' && json.title ? json.title : 'SISTEM BOOKING (Responses)',
       tab: typeof json?.tab === 'string' && json.tab ? json.tab : 'Form Responses 1',
       rows: parseSheetValues(values, 'live-sheet'),
+      financeRows: parseSheetFinanceValues(values, 'live-sheet'),
+      scriptVersion,
     };
   }
 
@@ -490,6 +804,8 @@ export async function fetchWebhookSheetRows(
       title: typeof json?.title === 'string' && json.title ? json.title : 'SISTEM BOOKING (Responses)',
       tab: typeof json?.tab === 'string' && json.tab ? json.tab : 'Form Responses 1',
       rows: parseWebhookObjectRows(objectItems),
+      financeRows: parseWebhookObjectFinanceRows(objectItems),
+      scriptVersion,
     };
   }
 
@@ -526,6 +842,7 @@ export interface WebhookAppendResult {
   title: string;
   tab: string;
   rows: SheetBookingRow[];
+  financeRows: SheetFinanceRow[];
 }
 
 export async function appendBookingToWebhook(
@@ -555,6 +872,7 @@ export async function appendBookingToWebhook(
       : '';
 
   const bodyFields = {
+    action: 'booking',
     timestamp,
     nama: payload.name,
     telefon: cleanPhone,
@@ -606,7 +924,7 @@ export async function appendBookingToWebhook(
   }
 
   // Verify ground truth by reading live rows back from the Google Sheet
-  let refreshed: { title: string; tab: string; rows: SheetBookingRow[] } | null = null;
+  let refreshed: { title: string; tab: string; rows: SheetBookingRow[]; financeRows: SheetFinanceRow[] } | null = null;
   try {
     refreshed = await fetchWebhookSheetRows(cleanUrl);
   } catch {
@@ -628,6 +946,7 @@ export async function appendBookingToWebhook(
       title: refreshed.title,
       tab: refreshed.tab,
       rows: refreshed.rows,
+      financeRows: refreshed.financeRows,
     };
   }
 
@@ -655,6 +974,124 @@ export async function appendBookingToWebhook(
 
   throw new Error(
     'Permintaan dihantar, tetapi baris baharu tidak kelihatan dalam Google Sheet selepas semakan semula. Pastikan fungsi doPost(e) dalam Apps Script menulis ke helaian pertama (getSheets()[0]) dengan susunan lajur yang betul dan sudah dibuat New deployment.'
+  );
+}
+
+function findMatchingFinanceRow(
+  financeRows: SheetFinanceRow[],
+  payload: {
+    perkara: string;
+    entryType: 'expense' | 'income';
+    amount: number;
+  }
+): SheetFinanceRow | undefined {
+  const targetPerkara = payload.perkara.trim().toLowerCase();
+  const targetAmount = Math.round(payload.amount * 100) / 100;
+
+  for (let i = financeRows.length - 1; i >= 0; i--) {
+    const r = financeRows[i];
+    const rowAmount = payload.entryType === 'expense' ? r.wangKeluar : r.wangMasuk;
+    if (
+      r.perkara.trim().toLowerCase() === targetPerkara &&
+      Math.abs(rowAmount - targetAmount) < 0.01
+    ) {
+      return r;
+    }
+  }
+  return undefined;
+}
+
+export async function appendFinanceToWebhook(
+  webhookUrl: string,
+  payload: {
+    date: string;
+    entryType: 'expense' | 'income';
+    perkara: string;
+    amount: number;
+  }
+): Promise<WebhookAppendResult> {
+  const cleanUrl = webhookUrl.trim();
+  if (!isValidAppsScriptUrl(cleanUrl)) {
+    throw new Error('Pautan Apps Script Web App tidak sah.');
+  }
+
+  const timestamp = formatNowSheetTimestamp();
+  const slashDate = payload.date ? toSheetSlashDate(payload.date) : '';
+  const formattedAmount = String(Math.round(payload.amount * 100) / 100);
+  const cleanPerkara = payload.perkara.trim();
+
+  const bodyFields = {
+    action: 'finance',
+    timestamp,
+    tarikh: slashDate,
+    date: slashDate,
+    perkara: cleanPerkara,
+    jumlah: payload.entryType === 'income' ? formattedAmount : '',
+    wangKeluar: payload.entryType === 'expense' ? formattedAmount : '',
+  };
+
+  const queryParams = new URLSearchParams(bodyFields);
+  const separator = cleanUrl.includes('?') ? '&' : '?';
+  const postUrl = `${cleanUrl}${separator}${queryParams.toString()}`;
+
+  let postErrorMessage: string | null = null;
+  let needsScriptUpgrade = false;
+
+  try {
+    const res = await fetch(postUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify(bodyFields),
+    });
+
+    const rawText = await res.text().catch(() => '');
+    if (rawText.includes('Script function not found: doPost')) {
+      needsScriptUpgrade = true;
+    } else if (rawText.trim().startsWith('{')) {
+      const parsed = JSON.parse(rawText) as { ok?: boolean; error?: string };
+      if (parsed.ok === false) {
+        postErrorMessage = parsed.error || '';
+        if (postErrorMessage.toLowerCase().includes('tempahan tidak lengkap')) {
+          needsScriptUpgrade = true;
+        }
+      }
+    }
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, 650));
+  }
+
+  let refreshed: { title: string; tab: string; rows: SheetBookingRow[]; financeRows: SheetFinanceRow[] } | null = null;
+  try {
+    refreshed = await fetchWebhookSheetRows(cleanUrl);
+  } catch {
+    refreshed = null;
+  }
+
+  const matched = refreshed ? findMatchingFinanceRow(refreshed.financeRows, payload) : undefined;
+  if (refreshed && matched) {
+    return {
+      verified: true,
+      title: refreshed.title,
+      tab: refreshed.tab,
+      rows: refreshed.rows,
+      financeRows: refreshed.financeRows,
+    };
+  }
+
+  if (needsScriptUpgrade) {
+    throw new Error(
+      'APPS_SCRIPT_NEEDS_9COL_UPGRADE: Rekod telah disimpan dalam sistem Admin, tetapi Apps Script semasa belum menyokong lajur PERKARA & WANG KELUAR. Sila salin kod Apps Script 9-kolum dan kemas kini deployment (Manage deployments → New version).'
+    );
+  }
+
+  if (postErrorMessage) {
+    throw new Error(postErrorMessage);
+  }
+
+  throw new Error(
+    'APPS_SCRIPT_NEEDS_9COL_UPGRADE: Rekod disimpan dalam sistem Admin, tetapi belum muncul dalam Google Sheet (kolum PERKARA & WANG KELUAR). Sila kemas kini Apps Script kepada versi 9-kolum.'
   );
 }
 

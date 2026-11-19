@@ -31,7 +31,36 @@ export interface SheetBookingRow {
   unitType: UnitType;
   rawChoice: string;
   totalAmount?: number;
+  perkara?: string;
+  expenseAmount?: number;
   source: 'csv' | 'live-sheet';
+}
+
+export interface SheetFinanceRow {
+  id: string;
+  rowIndex: number;
+  timestamp: string;
+  date: string; // YYYY-MM-DD (from TARIKH MASUK or Timestamp)
+  name: string;
+  unitType: UnitType | null;
+  rawChoice: string;
+  perkara: string;
+  wangMasuk: number;
+  wangKeluar: number;
+  source: 'csv' | 'live-sheet';
+}
+
+export interface FinanceEntry {
+  id: string;
+  userId: string;
+  date: string; // YYYY-MM-DD
+  entryType: 'expense' | 'income';
+  perkara: string;
+  amount: number;
+  syncedToSheet?: boolean;
+  accessKey?: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
 }
 
 export interface AvailabilitySlot {
@@ -113,6 +142,9 @@ export const VALIDATION_LIMITS = {
   MIN_NIGHTS: 1,
   MAX_NIGHTS: 60,
   DISCOUNT_MAX: 100000,
+  PERKARA_MIN: 2,
+  PERKARA_MAX: 200,
+  AMOUNT_MAX: 1000000,
 } as const;
 
 export const ADMIN_EMAIL = 'emailshahir@gmail.com';

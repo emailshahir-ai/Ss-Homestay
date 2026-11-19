@@ -16,7 +16,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { Booking, SheetBookingRow, UNIT_RATES, UnitType } from '../types/homestay';
+import { Booking, SheetBookingRow, SheetFinanceRow, UNIT_RATES, UnitType } from '../types/homestay';
 import { formatDisplayDate, formatMYR, MALAY_MONTHS } from '../lib/dateUtils';
 import { downloadSheetBookingPdf } from '../lib/bookingPdf';
 import {
@@ -24,7 +24,7 @@ import {
   appendBookingToSheet,
   appendBookingToWebhook,
   extractSpreadsheetId,
-  fetchSheetBookingRows,
+  fetchSheetAllRows,
   fetchSpreadsheetMetadata,
   fetchWebhookSheetRows,
   isValidAppsScriptUrl,
@@ -45,12 +45,14 @@ interface GoogleSheetSyncPanelProps {
   onSheetsTokenObtained: (token: string) => void;
   onLiveRowsLoaded: (
     rows: SheetBookingRow[],
+    financeRows: SheetFinanceRow[],
     spreadsheetId: string,
     spreadsheetTitle: string,
     tabTitle: string
   ) => void;
   onAppsScriptRowsLoaded: (
     rows: SheetBookingRow[],
+    financeRows: SheetFinanceRow[],
     spreadsheetTitle: string,
     tabTitle: string
   ) => void;
@@ -215,8 +217,8 @@ export function GoogleSheetSyncPanel({
           : meta.sheets[0].title;
       setSelectedTab(targetTab);
 
-      const rows = await fetchSheetBookingRows(spreadsheetId, targetTab, token);
-      onLiveRowsLoaded(rows, spreadsheetId, meta.title, targetTab);
+      const { rows, financeRows } = await fetchSheetAllRows(spreadsheetId, targetTab, token);
+      onLiveRowsLoaded(rows, financeRows, spreadsheetId, meta.title, targetTab);
       setSheetSuccess(
         `Berjaya menyambung "${meta.title}" (${targetTab}) — ${rows.length} rekod dimuatkan. Anda kini boleh menghantar tempahan terus ke Google Sheet ini.`
       );
@@ -284,9 +286,10 @@ export function GoogleSheetSyncPanel({
     setIsConnecting(true);
     setSheetError(null);
     try {
-      const rows = await fetchSheetBookingRows(spreadsheetId, newTab, sheetsAccessToken);
+      const { rows, financeRows } = await fetchSheetAllRows(spreadsheetId, newTab, sheetsAccessToken);
       onLiveRowsLoaded(
         rows,
+        financeRows,
         spreadsheetId,
         spreadsheetTitle || connectedSheetInfo?.spreadsheetTitle || 'Google Sheet',
         newTab
@@ -321,13 +324,14 @@ export function GoogleSheetSyncPanel({
       );
 
       // Refresh live sheet rows right after append
-      const updatedRows = await fetchSheetBookingRows(
+      const { rows: updatedRows, financeRows: updatedFinanceRows } = await fetchSheetAllRows(
         connectedSheetInfo.spreadsheetId,
         connectedSheetInfo.tabTitle,
         sheetsAccessToken
       );
       onLiveRowsLoaded(
         updatedRows,
+        updatedFinanceRows,
         connectedSheetInfo.spreadsheetId,
         connectedSheetInfo.spreadsheetTitle,
         connectedSheetInfo.tabTitle
@@ -381,7 +385,7 @@ export function GoogleSheetSyncPanel({
     try {
       const res = await fetchWebhookSheetRows(trimmed);
       await onSaveWebhookUrl(trimmed, res.title || 'Google Sheet Tempahan');
-      onAppsScriptRowsLoaded(res.rows, res.title, res.tab);
+      onAppsScriptRowsLoaded(res.rows, res.financeRows, res.title, res.tab);
       setShowScriptGuide(false);
       setSheetSuccess(
         `Berjaya disambungkan tanpa log masuk Google! "${res.title}" (${res.tab}) · ${res.rows.length} rekod dimuatkan. Tempahan baharu akan disimpan terus ke Google Sheet ini.`
@@ -400,7 +404,7 @@ export function GoogleSheetSyncPanel({
     setSheetSuccess(null);
     try {
       const res = await fetchWebhookSheetRows(sheetsWebhookUrl);
-      onAppsScriptRowsLoaded(res.rows, res.title, res.tab);
+      onAppsScriptRowsLoaded(res.rows, res.financeRows, res.title, res.tab);
       setSheetSuccess(`Data Google Sheet disegar semula (${res.rows.length} rekod).`);
     } catch (err) {
       setSheetError(err instanceof Error ? err.message : 'Gagal memuatkan data terkini.');
@@ -439,7 +443,7 @@ export function GoogleSheetSyncPanel({
         unitType: booking.unitType,
         totalAmount: booking.totalAmount,
       });
-      onAppsScriptRowsLoaded(res.rows, res.title, res.tab);
+      onAppsScriptRowsLoaded(res.rows, res.financeRows, res.title, res.tab);
       onBookingSyncedToSheet?.(booking.id);
       setSheetSuccess(
         `Rekod tempahan atas nama ${booking.guestName} telah disahkan masuk ke Google Sheet "${res.title}".`

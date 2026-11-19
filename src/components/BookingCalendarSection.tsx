@@ -13,6 +13,7 @@ import {
   MessageCircle,
   Send,
   Trash2,
+  Wallet,
   XCircle,
 } from 'lucide-react';
 import {
@@ -25,8 +26,10 @@ import type { User } from 'firebase/auth';
 import {
   AvailabilitySlot,
   Booking,
+  FinanceEntry,
   MALAYSIA_STATES,
   SheetBookingRow,
+  SheetFinanceRow,
   UNIT_RATES,
   UnitType,
   VALIDATION_LIMITS,
@@ -52,6 +55,7 @@ import { deriveBookingAccessKeySync, verifyAdminPasswordSync } from '../lib/admi
 import { downloadBookingPdf, downloadCalendarSlotPdf } from '../lib/bookingPdf';
 import { appendBookingToWebhook } from '../lib/googleSheets';
 import { HOMESTAY_DETAILS } from '../data/propertyData';
+import { FinancialAnalysisPanel } from './FinancialAnalysisPanel';
 import { GoogleSheetSyncPanel } from './GoogleSheetSyncPanel';
 
 interface BookingCalendarSectionProps {
@@ -68,6 +72,9 @@ interface BookingCalendarSectionProps {
   selectedUnit: UnitType;
   onSelectUnit: (unit: UnitType) => void;
   sheetRows: SheetBookingRow[];
+  sheetFinanceRows: SheetFinanceRow[];
+  financeEntries: FinanceEntry[];
+  financeLoading: boolean;
   sheetSourceMode: 'csv' | 'live-sheet' | 'apps-script';
   sheetLoading: boolean;
   sheetsAccessToken: string | null;
@@ -75,12 +82,14 @@ interface BookingCalendarSectionProps {
   onSheetsTokenObtained: (token: string) => void;
   onLiveRowsLoaded: (
     rows: SheetBookingRow[],
+    financeRows: SheetFinanceRow[],
     spreadsheetId: string,
     spreadsheetTitle: string,
     tabTitle: string
   ) => void;
   onAppsScriptRowsLoaded: (
     rows: SheetBookingRow[],
+    financeRows: SheetFinanceRow[],
     spreadsheetTitle: string,
     tabTitle: string
   ) => void;
@@ -111,6 +120,9 @@ export function BookingCalendarSection({
   selectedUnit,
   onSelectUnit,
   sheetRows,
+  sheetFinanceRows,
+  financeEntries,
+  financeLoading,
   sheetSourceMode,
   sheetLoading,
   sheetsAccessToken,
@@ -199,7 +211,7 @@ export function BookingCalendarSection({
         unitType: booking.unitType,
         totalAmount: booking.totalAmount,
       });
-      onAppsScriptRowsLoaded(res.rows, res.title, res.tab);
+      onAppsScriptRowsLoaded(res.rows, res.financeRows, res.title, res.tab);
       setSyncedSheetBookingIds((prev) =>
         prev.includes(booking.id) ? prev : [...prev, booking.id]
       );
@@ -652,7 +664,7 @@ export function BookingCalendarSection({
                     : 'text-[#525C54] hover:text-[#161B17]'
                 }`}
               >
-                Homestay (RM 300)
+                Homestay
               </button>
               <button
                 type="button"
@@ -665,7 +677,7 @@ export function BookingCalendarSection({
                     : 'text-[#525C54] hover:text-[#161B17]'
                 }`}
               >
-                Roomstay (RM 130)
+                Roomstay
               </button>
               <button
                 type="button"
@@ -1215,7 +1227,7 @@ export function BookingCalendarSection({
 
               {rightTab === 'form' ? (
                 <form onSubmit={handleSubmitBooking} className="space-y-4">
-                  <div className="flex items-center justify-between text-xs text-[#525C54] pb-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#525C54] pb-1">
                     <span>
                       {user?.email ? (
                         <>
@@ -1225,7 +1237,18 @@ export function BookingCalendarSection({
                         'Mod Admin · Akses Kata Kunci'
                       )}
                     </span>
-                    <span className="font-medium text-[#14532D]">Kata Kunci Disahkan</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        document
+                          .getElementById('analisis-kewangan')
+                          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }}
+                      className="inline-flex items-center gap-1 font-semibold text-[#14532D] hover:underline cursor-pointer"
+                    >
+                      <Wallet className="w-3.5 h-3.5" />
+                      Analisis Kewangan
+                    </button>
                   </div>
 
               {/* 1. Pilihan Homestay atau Roomstay */}
@@ -1780,59 +1803,82 @@ export function BookingCalendarSection({
         </div>
       </div>
 
-      {/* Google Sheet Integration & Synced Records Table (Admin Unlocked Only) */}
+      {/* Admin Financial Analysis & Google Sheet Integration (Admin Unlocked Only) */}
       {adminUnlocked ? (
-        <GoogleSheetSyncPanel
-          sheetRows={sheetRows}
-          sheetSourceMode={sheetSourceMode}
-          sheetLoading={sheetLoading}
-          sheetsAccessToken={sheetsAccessToken}
-          sheetsWebhookUrl={sheetsWebhookUrl}
-          onSheetsTokenObtained={(token) => {
-            onSheetsTokenObtained(token);
-            setSheetGuideNotice(null);
-          }}
-          onLiveRowsLoaded={(rows, spreadsheetId, spreadsheetTitle, tabTitle) => {
-            onLiveRowsLoaded(rows, spreadsheetId, spreadsheetTitle, tabTitle);
-            setSheetGuideNotice(null);
-          }}
-          onAppsScriptRowsLoaded={(rows, spreadsheetTitle, tabTitle) => {
-            onAppsScriptRowsLoaded(rows, spreadsheetTitle, tabTitle);
-            setSheetGuideNotice(null);
-          }}
-          onSaveWebhookUrl={onSaveWebhookUrl}
-          onClearWebhookUrl={onClearWebhookUrl}
-          onResetToCsv={onResetToCsv}
-          onJumpToCalendarDate={(dateStr, unit) => {
-            const [y, m] = dateStr.split('-').map(Number);
-            if (y && m) {
-              setViewYear(y);
-              setViewMonth(m - 1);
-            }
-            handleUnitChange(unit);
-          }}
-          latestCreatedBooking={bookingSuccess}
-          connectedSheetInfo={connectedSheetInfo}
-          externalPendingAppendBooking={pendingSheetBooking}
-          onClearExternalPendingAppend={() => setPendingSheetBooking(null)}
-          onBookingSyncedToSheet={(bookingId) => {
-            setSyncedSheetBookingIds((prev) =>
-              prev.includes(bookingId) ? prev : [...prev, bookingId]
-            );
-          }}
-          sheetGuideNotice={sheetGuideNotice}
-          openScriptGuideSignal={openScriptGuideSignal}
-        />
+        <>
+          <FinancialAnalysisPanel
+            user={user}
+            bookingAccessKey={bookingAccessKey}
+            sheetRows={sheetRows}
+            sheetFinanceRows={sheetFinanceRows}
+            financeEntries={financeEntries}
+            financeLoading={financeLoading}
+            sheetSourceMode={sheetSourceMode}
+            sheetsWebhookUrl={sheetsWebhookUrl}
+            sheetsAccessToken={sheetsAccessToken}
+            connectedSheetInfo={connectedSheetInfo}
+            onAppsScriptDataLoaded={(rows, financeRows, spreadsheetTitle, tabTitle) => {
+              onAppsScriptRowsLoaded(rows, financeRows, spreadsheetTitle, tabTitle);
+              setSheetGuideNotice(null);
+            }}
+            onLiveDataLoaded={(rows, financeRows, spreadsheetId, spreadsheetTitle, tabTitle) => {
+              onLiveRowsLoaded(rows, financeRows, spreadsheetId, spreadsheetTitle, tabTitle);
+              setSheetGuideNotice(null);
+            }}
+          />
+
+          <GoogleSheetSyncPanel
+            sheetRows={sheetRows}
+            sheetSourceMode={sheetSourceMode}
+            sheetLoading={sheetLoading}
+            sheetsAccessToken={sheetsAccessToken}
+            sheetsWebhookUrl={sheetsWebhookUrl}
+            onSheetsTokenObtained={(token) => {
+              onSheetsTokenObtained(token);
+              setSheetGuideNotice(null);
+            }}
+            onLiveRowsLoaded={(rows, financeRows, spreadsheetId, spreadsheetTitle, tabTitle) => {
+              onLiveRowsLoaded(rows, financeRows, spreadsheetId, spreadsheetTitle, tabTitle);
+              setSheetGuideNotice(null);
+            }}
+            onAppsScriptRowsLoaded={(rows, financeRows, spreadsheetTitle, tabTitle) => {
+              onAppsScriptRowsLoaded(rows, financeRows, spreadsheetTitle, tabTitle);
+              setSheetGuideNotice(null);
+            }}
+            onSaveWebhookUrl={onSaveWebhookUrl}
+            onClearWebhookUrl={onClearWebhookUrl}
+            onResetToCsv={onResetToCsv}
+            onJumpToCalendarDate={(dateStr, unit) => {
+              const [y, m] = dateStr.split('-').map(Number);
+              if (y && m) {
+                setViewYear(y);
+                setViewMonth(m - 1);
+              }
+              handleUnitChange(unit);
+            }}
+            latestCreatedBooking={bookingSuccess}
+            connectedSheetInfo={connectedSheetInfo}
+            externalPendingAppendBooking={pendingSheetBooking}
+            onClearExternalPendingAppend={() => setPendingSheetBooking(null)}
+            onBookingSyncedToSheet={(bookingId) => {
+              setSyncedSheetBookingIds((prev) =>
+                prev.includes(bookingId) ? prev : [...prev, bookingId]
+              );
+            }}
+            sheetGuideNotice={sheetGuideNotice}
+            openScriptGuideSignal={openScriptGuideSignal}
+          />
+        </>
       ) : (
         <div className="mt-10 bg-white border border-[#DDE2DC] rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <Lock className="w-4 h-4 text-[#525C54] shrink-0 mt-0.5" />
             <div>
               <h3 className="text-sm font-semibold text-[#161B17]">
-                Integrasi & Rekod Penuh Google Sheet (Akses Admin Sahaja)
+                Analisis Kewangan &amp; Integrasi Google Sheet (Akses Admin Sahaja)
               </h3>
               <p className="text-xs text-[#525C54] mt-0.5">
-                Tarikh tempahan daripada Google Sheet telah diselaraskan pada kalendar di atas. Masukkan kata laluan pentadbir pada panel kanan untuk membuka jadual penuh dan mengemas kini Google Sheet.
+                Tarikh tempahan daripada Google Sheet telah diselaraskan pada kalendar di atas. Masukkan kata kunci admin pada panel kanan untuk membuka analisis kewangan (wang masuk, wang keluar, perkara &amp; baki) serta rekod penuh Google Sheet.
               </p>
             </div>
           </div>

@@ -127,6 +127,25 @@ service cloud.firestore {
       && data.updatedAt is timestamp;
     }
 
+    // Validation Blueprint: FinanceEntry
+    function isValidFinanceEntry(data) {
+      return data.keys().hasAll([
+        'userId', 'date', 'entryType', 'perkara', 'amount', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'userId', 'date', 'entryType', 'perkara', 'amount', 'syncedToSheet', 'accessKey', 'createdAt', 'updatedAt'
+      ])
+      && data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128
+      && isValidDateString(data.date)
+      && data.entryType in ['expense', 'income']
+      && data.perkara is string && data.perkara.size() >= 2 && data.perkara.size() <= 200
+      && (data.amount is int || data.amount is float) && data.amount > 0 && data.amount <= 1000000
+      && (!data.keys().hasAny(['syncedToSheet']) || data.syncedToSheet is bool)
+      && (!data.keys().hasAny(['accessKey']) || (data.accessKey is string && data.accessKey.size() == 64 && data.accessKey.matches('^[a-f0-9]{64}$')))
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
     // Bookings Collection (Passcode-Authorized Without Account Login + Primary Admin Override)
     match /bookings/{bookingId} {
       allow get: if isValidId(bookingId) && (isAdmin() || hasValidAccessKey(existing()));
@@ -236,6 +255,34 @@ service cloud.firestore {
           )
         );
       allow delete: if isValidId(settingId) && (isAdmin() || hasValidAccessKey(existing()));
+    }
+
+    // Passcode-Protected Admin Financial Entries (Wang Keluar & Manual Wang Masuk)
+    match /finance_entries/{entryId} {
+      allow get: if isValidId(entryId) && (isAdmin() || hasValidAccessKey(existing()));
+      allow list: if isAdmin() || hasValidAccessKey(existing());
+      allow create: if isValidId(entryId)
+        && isValidFinanceEntry(incoming())
+        && (
+          (isAdmin() && incoming().userId == request.auth.uid)
+          || hasValidAccessKey(incoming())
+        )
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(entryId)
+        && isValidFinanceEntry(incoming())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            hasValidAccessKey(existing())
+            && incoming().accessKey == existing().accessKey
+            && incoming().diff(existing()).affectedKeys().hasOnly(['syncedToSheet', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(entryId) && (isAdmin() || hasValidAccessKey(existing()));
     }
 
     // Health check doc for connection test

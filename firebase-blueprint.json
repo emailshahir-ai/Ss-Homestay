@@ -253,6 +253,71 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "FinanceEntry": {
+      "title": "FinanceEntry",
+      "description": "Admin financial ledger record for expenses (Wang Keluar) or manual income (Wang Masuk) synchronized with Google Sheet.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Admin UID or passcode actor identifier."
+        },
+        "date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Transaction date in YYYY-MM-DD format."
+        },
+        "entryType": {
+          "type": "string",
+          "enum": ["expense", "income"],
+          "description": "Whether the entry is Wang Keluar (expense) or Wang Masuk (income)."
+        },
+        "perkara": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 200,
+          "description": "Description of the financial transaction (Perkara)."
+        },
+        "amount": {
+          "type": "number",
+          "description": "Transaction amount in MYR."
+        },
+        "syncedToSheet": {
+          "type": "boolean",
+          "description": "Whether this entry has been confirmed written to Google Sheet."
+        },
+        "accessKey": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Passcode-derived access key hash authorizing admin financial records."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when entry was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when entry was last updated."
+        }
+      },
+      "required": [
+        "userId",
+        "date",
+        "entryType",
+        "perkara",
+        "amount",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -271,6 +336,10 @@
     "/app_settings/{settingId}": {
       "schema": { "$ref": "#/entities/AppSetting" },
       "description": "Admin-protected configuration for persistent Google Sheet Apps Script integration."
+    },
+    "/finance_entries/{entryId}": {
+      "schema": { "$ref": "#/entities/FinanceEntry" },
+      "description": "Admin-protected financial ledger entries (Wang Keluar & manual Wang Masuk)."
     }
   }
 }
