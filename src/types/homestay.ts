@@ -30,6 +30,7 @@ export interface SheetBookingRow {
   checkOut: string; // YYYY-MM-DD
   unitType: UnitType;
   rawChoice: string;
+  totalAmount?: number;
   source: 'csv' | 'live-sheet';
 }
 

@@ -145,6 +145,7 @@ export function BookingCalendarSection({
   const [checkOut, setCheckOut] = useState<string>('');
   const [accountNumber, setAccountNumber] = useState<string>('');
   const [discountInput, setDiscountInput] = useState<string>('');
+  const [customTotalInput, setCustomTotalInput] = useState<string | null>(null);
   const [autoSyncWebhook, setAutoSyncWebhook] = useState<boolean>(true);
 
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -196,6 +197,7 @@ export function BookingCalendarSection({
         checkIn: booking.checkIn,
         checkOut: booking.checkOut,
         unitType: booking.unitType,
+        totalAmount: booking.totalAmount,
       });
       onAppsScriptRowsLoaded(res.rows, res.title, res.tab);
       setSyncedSheetBookingIds((prev) =>
@@ -238,6 +240,7 @@ export function BookingCalendarSection({
   const handleUnitChange = (unit: UnitType) => {
     onSelectUnit(unit);
     setCalendarFilter(unit);
+    setCustomTotalInput(null);
     setFormError(null);
   };
 
@@ -264,7 +267,20 @@ export function BookingCalendarSection({
     Number.isFinite(parsedDiscount) && parsedDiscount > 0
       ? Math.min(parsedDiscount, subtotalAmount > 0 ? subtotalAmount : parsedDiscount)
       : 0;
-  const totalAmount = Math.max(0, Math.round((subtotalAmount - effectiveDiscount) * 100) / 100);
+  const autoTotalAmount = Math.max(0, Math.round((subtotalAmount - effectiveDiscount) * 100) / 100);
+  const parsedCustomTotal = useMemo(() => {
+    if (customTotalInput === null) return null;
+    const trimmed = customTotalInput.trim();
+    if (!trimmed) return Number.NaN;
+    const num = Number(trimmed);
+    return Number.isFinite(num) ? Math.round(num * 100) / 100 : Number.NaN;
+  }, [customTotalInput]);
+  const totalAmount =
+    parsedCustomTotal !== null
+      ? Number.isFinite(parsedCustomTotal) && parsedCustomTotal >= 0
+        ? parsedCustomTotal
+        : 0
+      : autoTotalAmount;
 
   const hasOverlap = useMemo(() => {
     if (!checkIn || !checkOut || nights <= 0) return false;
@@ -347,6 +363,7 @@ export function BookingCalendarSection({
       }
       setCheckIn(dateStr);
       setCheckOut('');
+      setCustomTotalInput(null);
       return;
     }
 
@@ -360,6 +377,7 @@ export function BookingCalendarSection({
       }
       setCheckIn(dateStr);
       setCheckOut('');
+      setCustomTotalInput(null);
       return;
     }
 
@@ -377,6 +395,7 @@ export function BookingCalendarSection({
     }
 
     setCheckOut(dateStr);
+    setCustomTotalInput(null);
   };
 
   const handleUnlockAdminSubmit = (e: React.FormEvent) => {
@@ -468,6 +487,16 @@ export function BookingCalendarSection({
       return;
     }
 
+    if (
+      parsedCustomTotal !== null &&
+      (Number.isNaN(parsedCustomTotal) ||
+        parsedCustomTotal < 0 ||
+        parsedCustomTotal > VALIDATION_LIMITS.DISCOUNT_MAX)
+    ) {
+      setFormError('Sila masukkan jumlah bayaran yang sah (RM 0 hingga RM 100,000).');
+      return;
+    }
+
     const safeDiscount = Math.round(parsedDiscount * 100) / 100;
 
     setSubmitting(true);
@@ -538,6 +567,7 @@ export function BookingCalendarSection({
       setCheckOut('');
       setAccountNumber('');
       setDiscountInput('');
+      setCustomTotalInput(null);
       setPhone('');
 
       // If Apps Script Web App is connected, save automatically and verify row appears in Google Sheet
@@ -753,7 +783,7 @@ export function BookingCalendarSection({
                 Kosong
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="w-3.5 h-3.5 rounded border border-red-200 booked-hatch inline-block" aria-hidden="true" />
+                <span className="w-3.5 h-3.5 rounded border border-[#7F1D1D] booked-hatch inline-block" aria-hidden="true" />
                 Ditempah (Penuh)
               </span>
               <span className="inline-flex items-center gap-1.5">
@@ -824,6 +854,9 @@ export function BookingCalendarSection({
 
                   const hasAnyBookedInAll = calendarFilter === 'all' && (homestayBooked || roomstayBooked);
                   const isVisuallyBooked = isBookedForSelectedFilter || hasAnyBookedInAll;
+                  const isBookedCell =
+                    !(isCheckInDay || isCheckOutDay || isInSelectedRange) &&
+                    ((isPast && isVisuallyBooked) || (!isPast && isBookedForSelectedFilter));
 
                   let cellClasses =
                     'bg-white border-[#DDE2DC] text-[#161B17] hover:border-[#14532D] hover:bg-[#F8F9F7]';
@@ -833,15 +866,15 @@ export function BookingCalendarSection({
                   } else if (isInSelectedRange) {
                     cellClasses = 'bg-[#E6F0E9] border-[#84B395] text-[#14532D]';
                   } else if (isPast && isVisuallyBooked) {
-                    cellClasses = `booked-hatch border-red-200/80 text-red-900/85 ${
-                      adminUnlocked ? 'cursor-pointer' : 'cursor-not-allowed'
+                    cellClasses = `booked-hatch-past border-[#450A0A] text-white/95 ${
+                      adminUnlocked ? 'cursor-pointer hover:brightness-95' : 'cursor-not-allowed opacity-90'
                     }`;
                   } else if (isPast) {
                     cellClasses = `bg-[#F8F9F7] border-[#EBEFEB] text-[#9AA39C] ${
                       adminUnlocked ? 'hover:border-[#14532D] cursor-pointer' : 'cursor-not-allowed'
                     }`;
                   } else if (isBookedForSelectedFilter) {
-                    cellClasses = 'booked-hatch border-red-200 text-red-900';
+                    cellClasses = 'booked-hatch border-[#7F1D1D] text-white hover:brightness-95';
                   }
 
                   const cellTooltip =
@@ -887,7 +920,7 @@ export function BookingCalendarSection({
                         {isToday && (
                           <span
                             className={`text-[9px] font-medium ${
-                              isCheckInDay || isCheckOutDay ? 'text-white/90' : 'text-[#14532D]'
+                              isCheckInDay || isCheckOutDay || isBookedCell ? 'text-white/90' : 'text-[#14532D]'
                             }`}
                           >
                             Hari ini
@@ -906,12 +939,20 @@ export function BookingCalendarSection({
                         ) : calendarFilter === 'all' ? (
                           <div className="space-y-0.5 text-[9.5px] leading-tight">
                             {homestaySlot && (
-                              <span className="block truncate text-red-800 font-semibold">
+                              <span
+                                className={`block truncate font-semibold ${
+                                  isBookedCell ? 'text-white' : 'text-red-800'
+                                }`}
+                              >
                                 H: {homestaySlot.guestName || 'Penuh'}
                               </span>
                             )}
                             {roomstaySlot && (
-                              <span className="block truncate text-amber-900 font-semibold">
+                              <span
+                                className={`block truncate font-semibold ${
+                                  isBookedCell ? 'text-amber-200' : 'text-amber-900'
+                                }`}
+                              >
                                 R: {roomstaySlot.guestName || 'Penuh'}
                               </span>
                             )}
@@ -926,15 +967,15 @@ export function BookingCalendarSection({
                           <div className="space-y-0.5 leading-tight">
                             {activeUnitSlot?.guestName ? (
                               <>
-                                <span className="block truncate text-[10px] font-semibold text-red-900">
+                                <span className="block truncate text-[10px] font-semibold text-white">
                                   {activeUnitSlot.guestName}
                                 </span>
-                                <span className="block text-[9px] font-medium text-red-700/85">
+                                <span className="block text-[9px] font-medium text-red-100">
                                   Penuh
                                 </span>
                               </>
                             ) : (
-                              <span className="block text-[10px] font-semibold text-red-700">Penuh</span>
+                              <span className="block text-[10px] font-semibold text-white">Penuh</span>
                             )}
                           </div>
                         ) : !isPast ? (
@@ -1285,6 +1326,7 @@ export function BookingCalendarSection({
                     onChange={(e) => {
                       const val = e.target.value;
                       setCheckIn(val);
+                      setCustomTotalInput(null);
                       setFormError(null);
                       if (val) {
                         const [y, m] = val.split('-').map(Number);
@@ -1307,6 +1349,7 @@ export function BookingCalendarSection({
                     value={checkOut}
                     onChange={(e) => {
                       setCheckOut(e.target.value);
+                      setCustomTotalInput(null);
                       setFormError(null);
                     }}
                     className="w-full px-3 py-2.5 text-sm font-mono-tabular rounded-lg border border-[#DDE2DC] bg-white text-[#161B17] focus:outline-none focus:border-[#14532D]"
@@ -1314,24 +1357,26 @@ export function BookingCalendarSection({
                 </div>
               </div>
 
-              {/* 6. No Akaun & Diskaun Harga */}
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                <div className="sm:col-span-7">
-                  <label htmlFor="booking-account" className="block text-xs font-semibold text-[#161B17] mb-1.5">
-                    No. Akaun Bank / Rujukan Pembayaran
-                  </label>
-                  <input
-                    id="booking-account"
-                    type="text"
-                    required
-                    maxLength={VALIDATION_LIMITS.ACCOUNT_MAX}
-                    value={accountNumber}
-                    onChange={(e) => setAccountNumber(e.target.value)}
-                    placeholder="Contoh: 1621 0648 9210 (Maybank)"
-                    className="w-full px-3.5 py-2.5 text-sm font-mono-tabular rounded-lg border border-[#DDE2DC] bg-white text-[#161B17] placeholder:text-[#9AA39C] focus:outline-none focus:border-[#14532D]"
-                  />
-                </div>
-                <div className="sm:col-span-5">
+              {/* 6. No Akaun */}
+              <div>
+                <label htmlFor="booking-account" className="block text-xs font-semibold text-[#161B17] mb-1.5">
+                  No. Akaun Bank / Rujukan Pembayaran
+                </label>
+                <input
+                  id="booking-account"
+                  type="text"
+                  required
+                  maxLength={VALIDATION_LIMITS.ACCOUNT_MAX}
+                  value={accountNumber}
+                  onChange={(e) => setAccountNumber(e.target.value)}
+                  placeholder="Contoh: 1621 0648 9210 (Maybank)"
+                  className="w-full px-3.5 py-2.5 text-sm font-mono-tabular rounded-lg border border-[#DDE2DC] bg-white text-[#161B17] placeholder:text-[#9AA39C] focus:outline-none focus:border-[#14532D]"
+                />
+              </div>
+
+              {/* 7. Diskaun Harga & Jumlah Bayaran (RM) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
                   <label htmlFor="booking-discount" className="block text-xs font-semibold text-[#161B17] mb-1.5">
                     Diskaun Harga (RM)
                   </label>
@@ -1345,10 +1390,51 @@ export function BookingCalendarSection({
                     value={discountInput}
                     onChange={(e) => {
                       setDiscountInput(e.target.value);
+                      setCustomTotalInput(null);
                       setFormError(null);
                     }}
                     placeholder="0 (Pilihan)"
                     className="w-full px-3.5 py-2.5 text-sm font-mono-tabular rounded-lg border border-[#DDE2DC] bg-white text-[#161B17] placeholder:text-[#9AA39C] focus:outline-none focus:border-[#14532D]"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label htmlFor="booking-total" className="block text-xs font-semibold text-[#161B17]">
+                      Jumlah (RM)
+                    </label>
+                    {customTotalInput !== null && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomTotalInput(null);
+                          setFormError(null);
+                        }}
+                        className="text-[11px] font-medium text-[#14532D] hover:underline cursor-pointer"
+                      >
+                        Kira Auto
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    id="booking-total"
+                    type="number"
+                    min={0}
+                    max={VALIDATION_LIMITS.DISCOUNT_MAX}
+                    step="any"
+                    inputMode="decimal"
+                    value={
+                      customTotalInput !== null
+                        ? customTotalInput
+                        : nights > 0
+                        ? String(autoTotalAmount)
+                        : ''
+                    }
+                    onChange={(e) => {
+                      setCustomTotalInput(e.target.value);
+                      setFormError(null);
+                    }}
+                    placeholder={nights > 0 ? String(autoTotalAmount) : 'Contoh: 300'}
+                    className="w-full px-3.5 py-2.5 text-sm font-mono-tabular font-semibold rounded-lg border border-[#DDE2DC] bg-white text-[#14532D] placeholder:text-[#9AA39C] placeholder:font-normal focus:outline-none focus:border-[#14532D]"
                   />
                 </div>
               </div>

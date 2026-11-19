@@ -335,7 +335,11 @@ export async function downloadBookingPdf(booking: Booking): Promise<void> {
 
 export async function downloadSheetBookingPdf(row: SheetBookingRow): Promise<void> {
   const nights = Math.max(1, calculateNights(row.checkIn, row.checkOut));
-  const totalAmount = nights * UNIT_RATES[row.unitType].ratePerNight;
+  const baseSubtotal = nights * UNIT_RATES[row.unitType].ratePerNight;
+  const hasRecordedTotal = typeof row.totalAmount === 'number' && Number.isFinite(row.totalAmount) && row.totalAmount >= 0;
+  const totalAmount = hasRecordedTotal ? row.totalAmount! : baseSubtotal;
+  const derivedDiscount = hasRecordedTotal && baseSubtotal > totalAmount ? Math.round((baseSubtotal - totalAmount) * 100) / 100 : 0;
+
   await generateBookingPdf({
     referenceId: `GS-${row.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 14)}`,
     unitType: row.unitType,
@@ -344,6 +348,7 @@ export async function downloadSheetBookingPdf(row: SheetBookingRow): Promise<voi
     checkIn: row.checkIn,
     checkOut: row.checkOut,
     nights,
+    discountAmount: derivedDiscount,
     totalAmount,
     accountNumber: row.timestamp ? `Google Sheet (${row.timestamp})` : 'Rekod Google Sheet',
     status: 'confirmed',

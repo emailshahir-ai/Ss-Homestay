@@ -33,7 +33,7 @@ import {
   ATTACHED_SHEET_CSV_URL,
   DEFAULT_APPS_SCRIPT_URL,
   fetchWebhookSheetRows,
-  LEGACY_DEFAULT_APPS_SCRIPT_URL,
+  LEGACY_DEFAULT_APPS_SCRIPT_URLS,
   parseCsvText,
 } from './lib/googleSheets';
 import { HERO_IMAGE, HOMESTAY_DETAILS, ROOMSTAY_DETAILS } from './data/propertyData';
@@ -286,12 +286,12 @@ function HomestayApp() {
         }
         const data = gsDoc.data();
         const storedUrl = typeof data.webhookUrl === 'string' ? data.webhookUrl : '';
-        const effectiveUrl =
-          storedUrl === LEGACY_DEFAULT_APPS_SCRIPT_URL ? DEFAULT_APPS_SCRIPT_URL : storedUrl;
+        const isLegacyUrl = LEGACY_DEFAULT_APPS_SCRIPT_URLS.includes(storedUrl);
+        const effectiveUrl = isLegacyUrl ? DEFAULT_APPS_SCRIPT_URL : storedUrl;
         const label =
           typeof data.sheetLabel === 'string' ? data.sheetLabel : 'SISTEM BOOKING AI STUDIO';
         setHasExistingWebhookDoc(Boolean(effectiveUrl));
-        if (storedUrl === LEGACY_DEFAULT_APPS_SCRIPT_URL) {
+        if (isLegacyUrl) {
           void updateDoc(doc(db, 'app_settings', 'google_sheet'), {
             webhookUrl: DEFAULT_APPS_SCRIPT_URL,
             sheetLabel: 'SISTEM BOOKING AI STUDIO',

@@ -2,11 +2,13 @@ import { SheetBookingRow, UnitType } from '../types/homestay';
 
 export const ATTACHED_SHEET_CSV_URL = '/assets/aistudio/SISTEM_BOOKING__Responses__d1144951';
 
-export const LEGACY_DEFAULT_APPS_SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbzBgO6lg7Dm9rIyaqyaVHnDcmzDU1N3iBod8sKZxePTH2OUDbJIAvafFj_F2tKchGy1bA/exec';
+export const LEGACY_DEFAULT_APPS_SCRIPT_URLS = [
+  'https://script.google.com/macros/s/AKfycbzBgO6lg7Dm9rIyaqyaVHnDcmzDU1N3iBod8sKZxePTH2OUDbJIAvafFj_F2tKchGy1bA/exec',
+  'https://script.google.com/macros/s/AKfycbzoS8cGRzzGvn8oapem_PwUSbJSS_6YBvcKR07VMQ2568WnSMmlW83GfRBghoX0f2U/exec',
+];
 
 export const DEFAULT_APPS_SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbzoS8cGRzzGvn8oapem_PwUSbJSS_6YBvcKR07VMQ2568WnSMmlW83GfRBghoX0f2U/exec';
+  'https://script.google.com/macros/s/AKfycbxoWYYDwV0UKfHHQdm_Tw3LYkfOneYsONtQ5qMom-aMR0p5XpvmWMX-jxEVeriIjg/exec';
 
 export function extractSpreadsheetId(input: string): string | null {
   const trimmed = input.trim();
@@ -76,6 +78,18 @@ export function parseStayChoice(raw: string): UnitType | null {
   return null;
 }
 
+export function parseSheetAmount(raw: string): number | undefined {
+  const cleaned = raw
+    .trim()
+    .replace(/RM/gi, '')
+    .replace(/,/g, '')
+    .replace(/\s+/g, '');
+  if (!cleaned) return undefined;
+  const num = Number(cleaned);
+  if (!Number.isFinite(num) || num < 0) return undefined;
+  return Math.round(num * 100) / 100;
+}
+
 function splitCsvLine(line: string): string[] {
   const result: string[] = [];
   let current = '';
@@ -114,6 +128,14 @@ export function parseSheetValues(
   const idxCheckIn = header.findIndex((h) => h.includes('MASUK') || h.includes('CHECK IN'));
   const idxCheckOut = header.findIndex((h) => h.includes('KELUAR') || h.includes('CHECK OUT'));
   const idxChoice = header.findIndex((h) => h.includes('PILIHAN') || h.includes('MENGINAP') || h.includes('UNIT'));
+  const idxTotal = header.findIndex(
+    (h) =>
+      h.includes('JUMLAH') ||
+      h.includes('TOTAL') ||
+      h.includes('HARGA') ||
+      h.includes('BAYARAN') ||
+      h.includes('AMOUNT')
+  );
 
   const colTs = idxTimestamp >= 0 ? idxTimestamp : 0;
   const colName = idxName >= 0 ? idxName : 1;
@@ -121,6 +143,7 @@ export function parseSheetValues(
   const colIn = idxCheckIn >= 0 ? idxCheckIn : 3;
   const colOut = idxCheckOut >= 0 ? idxCheckOut : 4;
   const colChoice = idxChoice >= 0 ? idxChoice : 5;
+  const colTotal = idxTotal >= 0 ? idxTotal : 6;
 
   const parsed: SheetBookingRow[] = [];
 
@@ -135,6 +158,7 @@ export function parseSheetValues(
     const checkOut = parseSheetDate(cols[colOut] || '');
     const rawChoice = (cols[colChoice] || '').trim();
     const unitType = parseStayChoice(rawChoice);
+    const totalAmount = parseSheetAmount(cols[colTotal] || '');
 
     if (!name || !checkIn || !checkOut || !unitType || checkOut <= checkIn) {
       continue;
@@ -149,6 +173,7 @@ export function parseSheetValues(
       checkOut,
       unitType,
       rawChoice: rawChoice.toUpperCase() || (unitType === 'homestay' ? 'H' : 'R'),
+      totalAmount,
       source,
     });
   }
@@ -258,9 +283,14 @@ export async function appendBookingToSheet(
     checkIn: string;
     checkOut: string;
     unitType: UnitType;
+    totalAmount?: number;
   }
 ): Promise<void> {
-  const range = `${formatA1SheetTitle(sheetTitle)}!A:F`;
+  const range = `${formatA1SheetTitle(sheetTitle)}!A:G`;
+  const totalCell =
+    typeof payload.totalAmount === 'number' && Number.isFinite(payload.totalAmount)
+      ? Number(payload.totalAmount.toFixed(2))
+      : '';
   const values = [
     [
       formatNowSheetTimestamp(),
@@ -269,6 +299,7 @@ export async function appendBookingToSheet(
       toSheetSlashDate(payload.checkIn),
       toSheetSlashDate(payload.checkOut),
       payload.unitType === 'homestay' ? 'H' : 'R',
+      totalCell,
     ],
   ];
 
@@ -333,6 +364,15 @@ function doPost(e) {
     var masuk = data.masuk || data.checkIn || params.masuk || params.checkIn || '';
     var keluar = data.keluar || data.checkOut || params.keluar || params.checkOut || '';
     var pilihan = data.pilihan || data.choice || params.pilihan || params.choice || 'H';
+    var jumlahRaw = (data.jumlah !== undefined && data.jumlah !== '')
+      ? data.jumlah
+      : (data.totalAmount !== undefined && data.totalAmount !== '')
+      ? data.totalAmount
+      : (params.jumlah !== undefined && params.jumlah !== '')
+      ? params.jumlah
+      : (params.totalAmount !== undefined ? params.totalAmount : '');
+    var jumlah = jumlahRaw === '' ? '' : Number(jumlahRaw);
+    if (jumlah !== '' && isNaN(jumlah)) jumlah = jumlahRaw;
     var ts = data.timestamp || params.timestamp || Utilities.formatDate(new Date(), 'Asia/Kuala_Lumpur', 'M/d/yyyy HH:mm:ss');
 
     if (!nama || !masuk || !keluar) {
@@ -343,11 +383,18 @@ function doPost(e) {
 
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheets()[0];
-    sheet.appendRow([ts, nama, telefon, masuk, keluar, pilihan]);
+    if (String(sheet.getRange(1, 7).getValue()).trim() === '') {
+      sheet.getRange(1, 7).setValue('JUMLAH');
+    }
+    sheet.appendRow([ts, nama, telefon, masuk, keluar, pilihan, jumlah]);
+    var writtenRow = sheet.getLastRow();
+    if (jumlah !== '' && String(sheet.getRange(writtenRow, 7).getValue()).trim() === '') {
+      sheet.getRange(writtenRow, 7).setValue(jumlah);
+    }
     SpreadsheetApp.flush();
 
     return ContentService
-      .createTextOutput(JSON.stringify({ ok: true }))
+      .createTextOutput(JSON.stringify({ ok: true, row: writtenRow, jumlah: jumlah }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService
@@ -369,10 +416,14 @@ function parseWebhookObjectRows(items: Array<Record<string, unknown>>): SheetBoo
     const rawChoice = String(
       item.pilihan ?? item.PILIHAN ?? item['pilihan menginap'] ?? item.choice ?? item.unitType ?? ''
     ).trim();
+    const rawTotal = String(
+      item.jumlah ?? item.JUMLAH ?? item['jumlah (rm)'] ?? item.totalAmount ?? item.total ?? item.amount ?? ''
+    ).trim();
 
     const checkIn = parseSheetDate(rawIn);
     const checkOut = parseSheetDate(rawOut);
     const unitType = parseStayChoice(rawChoice);
+    const totalAmount = parseSheetAmount(rawTotal);
 
     if (!name || !checkIn || !checkOut || !unitType || checkOut <= checkIn) {
       return;
@@ -387,6 +438,7 @@ function parseWebhookObjectRows(items: Array<Record<string, unknown>>): SheetBoo
       checkOut,
       unitType,
       rawChoice: rawChoice.toUpperCase() || (unitType === 'homestay' ? 'H' : 'R'),
+      totalAmount,
       source: 'live-sheet',
     });
   });
@@ -444,7 +496,7 @@ export async function fetchWebhookSheetRows(
   throw new Error('Format respons Apps Script tidak dikenali.');
 }
 
-function matchesBookingInRows(
+function findMatchingBookingRow(
   rows: SheetBookingRow[],
   payload: {
     name: string;
@@ -452,19 +504,25 @@ function matchesBookingInRows(
     checkOut: string;
     unitType: UnitType;
   }
-): boolean {
+): SheetBookingRow | undefined {
   const targetName = payload.name.trim().toLowerCase();
-  return rows.some(
-    (r) =>
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i];
+    if (
       r.unitType === payload.unitType &&
       r.checkIn === payload.checkIn &&
       r.checkOut === payload.checkOut &&
       r.name.trim().toLowerCase() === targetName
-  );
+    ) {
+      return r;
+    }
+  }
+  return undefined;
 }
 
 export interface WebhookAppendResult {
   verified: boolean;
+  missingTotalColumn?: boolean;
   title: string;
   tab: string;
   rows: SheetBookingRow[];
@@ -478,6 +536,7 @@ export async function appendBookingToWebhook(
     checkIn: string;
     checkOut: string;
     unitType: UnitType;
+    totalAmount?: number;
   }
 ): Promise<WebhookAppendResult> {
   const cleanUrl = webhookUrl.trim();
@@ -490,6 +549,10 @@ export async function appendBookingToWebhook(
   const slashCheckOut = toSheetSlashDate(payload.checkOut);
   const choiceCode = payload.unitType === 'homestay' ? 'H' : 'R';
   const cleanPhone = payload.phone || '-';
+  const formattedTotal =
+    typeof payload.totalAmount === 'number' && Number.isFinite(payload.totalAmount)
+      ? String(Math.round(payload.totalAmount * 100) / 100)
+      : '';
 
   const bodyFields = {
     timestamp,
@@ -498,11 +561,13 @@ export async function appendBookingToWebhook(
     masuk: slashCheckIn,
     keluar: slashCheckOut,
     pilihan: choiceCode,
+    jumlah: formattedTotal,
     name: payload.name,
     phone: cleanPhone,
     checkIn: slashCheckIn,
     checkOut: slashCheckOut,
     choice: choiceCode,
+    totalAmount: formattedTotal,
   };
 
   // Send fields both as URL query parameters (e.parameter) and JSON text/plain body (e.postData.contents)
@@ -548,9 +613,18 @@ export async function appendBookingToWebhook(
     refreshed = null;
   }
 
-  if (refreshed && matchesBookingInRows(refreshed.rows, payload)) {
+  const matchedRow = refreshed ? findMatchingBookingRow(refreshed.rows, payload) : undefined;
+  if (refreshed && matchedRow) {
+    const expectedTotal =
+      typeof payload.totalAmount === 'number' && Number.isFinite(payload.totalAmount)
+        ? Math.round(payload.totalAmount * 100) / 100
+        : undefined;
+    const missingTotalColumn =
+      expectedTotal !== undefined && matchedRow.totalAmount === undefined;
+
     return {
       verified: true,
+      missingTotalColumn,
       title: refreshed.title,
       tab: refreshed.tab,
       rows: refreshed.rows,
@@ -580,7 +654,7 @@ export async function appendBookingToWebhook(
   }
 
   throw new Error(
-    'Permintaan dihantar, tetapi baris baharu tidak kelihatan dalam Google Sheet selepas semakan semula. Pastikan fungsi doPost(e) dalam Apps Script menulis ke helaian pertama (getSheets()[0]) dengan susunan 6 lajur yang betul dan sudah dibuat New deployment.'
+    'Permintaan dihantar, tetapi baris baharu tidak kelihatan dalam Google Sheet selepas semakan semula. Pastikan fungsi doPost(e) dalam Apps Script menulis ke helaian pertama (getSheets()[0]) dengan susunan lajur yang betul dan sudah dibuat New deployment.'
   );
 }
 

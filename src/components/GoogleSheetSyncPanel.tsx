@@ -17,7 +17,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { Booking, SheetBookingRow, UNIT_RATES, UnitType } from '../types/homestay';
-import { formatDisplayDate, MALAY_MONTHS } from '../lib/dateUtils';
+import { formatDisplayDate, formatMYR, MALAY_MONTHS } from '../lib/dateUtils';
 import { downloadSheetBookingPdf } from '../lib/bookingPdf';
 import {
   APPS_SCRIPT_TEMPLATE,
@@ -188,7 +188,8 @@ export function GoogleSheetSyncPanel({
         if (unitFilter !== 'all' && row.unitType !== unitFilter) return false;
         if (monthFilter !== 'all' && !row.checkIn.startsWith(monthFilter)) return false;
         if (q) {
-          const hay = `${row.name} ${row.phone} ${row.checkIn} ${row.checkOut} ${row.rawChoice}`.toLowerCase();
+          const totalStr = row.totalAmount !== undefined ? String(row.totalAmount) : '';
+          const hay = `${row.name} ${row.phone} ${row.checkIn} ${row.checkOut} ${row.rawChoice} ${totalStr}`.toLowerCase();
           if (!hay.includes(q)) return false;
         }
         return true;
@@ -315,6 +316,7 @@ export function GoogleSheetSyncPanel({
           checkIn: activePendingBooking.checkIn,
           checkOut: activePendingBooking.checkOut,
           unitType: activePendingBooking.unitType,
+          totalAmount: activePendingBooking.totalAmount,
         }
       );
 
@@ -357,6 +359,13 @@ export function GoogleSheetSyncPanel({
     if (trimmed.includes('docs.google.com/spreadsheets')) {
       setSheetError(
         'Ini ialah pautan paparan Google Sheet biasa yang memerlukan Log Masuk Google. Untuk sambungan tanpa log masuk Google, cipta Web App Apps Script (pautan bermula dengan https://script.google.com/macros/s/.../exec) mengikut 3 langkah di bawah, atau tukar ke tab "Log Masuk Google".'
+      );
+      return;
+    }
+
+    if (trimmed.includes('script.google.com/macros/library')) {
+      setSheetError(
+        'Ini ialah pautan "Library", bukan pautan "Web app". Di Google Apps Script, klik Deploy → New deployment → pilih jenis "Web app" (ikon gear di sebelah Select type) → Execute as: Me → Who has access: Anyone → Deploy, dan salin pautan Web app yang berakhir dengan /exec.'
       );
       return;
     }
@@ -428,6 +437,7 @@ export function GoogleSheetSyncPanel({
         checkIn: booking.checkIn,
         checkOut: booking.checkOut,
         unitType: booking.unitType,
+        totalAmount: booking.totalAmount,
       });
       onAppsScriptRowsLoaded(res.rows, res.title, res.tab);
       onBookingSyncedToSheet?.(booking.id);
@@ -878,7 +888,7 @@ export function GoogleSheetSyncPanel({
         </span>
       </div>
 
-      {/* 6-Column Spreadsheet Table */}
+      {/* 7-Column Spreadsheet Table */}
       {sheetLoading ? (
         <div className="space-y-2 animate-pulse py-4">
           <div className="h-10 rounded-lg bg-[#EFF2EE]" />
@@ -900,6 +910,7 @@ export function GoogleSheetSyncPanel({
                 <th className="py-2.5 px-3 font-semibold whitespace-nowrap">Tarikh Masuk</th>
                 <th className="py-2.5 px-3 font-semibold whitespace-nowrap">Tarikh Keluar</th>
                 <th className="py-2.5 px-3 font-semibold whitespace-nowrap">Pilihan Menginap</th>
+                <th className="py-2.5 px-3 font-semibold text-right whitespace-nowrap">Jumlah</th>
                 <th className="py-2.5 px-3 font-semibold text-right whitespace-nowrap">Tindakan</th>
               </tr>
             </thead>
@@ -925,6 +936,13 @@ export function GoogleSheetSyncPanel({
                     <span className="font-medium text-[#14532D]">
                       {row.rawChoice} · {UNIT_RATES[row.unitType].label}
                     </span>
+                  </td>
+                  <td className="py-2.5 px-3 font-mono-tabular font-semibold text-right whitespace-nowrap">
+                    {typeof row.totalAmount === 'number' ? (
+                      <span className="text-[#161B17]">{formatMYR(row.totalAmount)}</span>
+                    ) : (
+                      <span className="text-[#9AA39C] font-normal">—</span>
+                    )}
                   </td>
                   <td className="py-2.5 px-3 text-right whitespace-nowrap">
                     <div className="inline-flex items-center justify-end gap-3">
@@ -1012,6 +1030,12 @@ export function GoogleSheetSyncPanel({
                 <span className="text-[#525C54]">Pilihan Menginap:</span>
                 <span className="font-semibold text-[#14532D]">
                   {activePendingBooking.unitType === 'homestay' ? 'H (Ss Homestay)' : 'R (Ss Roomstay)'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#525C54]">Jumlah:</span>
+                <span className="font-mono-tabular font-semibold text-[#14532D]">
+                  {formatMYR(activePendingBooking.totalAmount)}
                 </span>
               </div>
             </div>

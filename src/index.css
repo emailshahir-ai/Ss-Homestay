@@ -24,11 +24,23 @@
 }
 
 .booked-hatch {
+  background-color: #991b1b;
   background-image: repeating-linear-gradient(
     -45deg,
-    rgba(185, 28, 28, 0.05),
-    rgba(185, 28, 28, 0.05) 4px,
-    rgba(254, 242, 242, 0.7) 4px,
-    rgba(254, 242, 242, 0.7) 8px
+    rgba(69, 10, 10, 0.36),
+    rgba(69, 10, 10, 0.36) 4px,
+    rgba(153, 27, 27, 0.92) 4px,
+    rgba(153, 27, 27, 0.92) 8px
+  );
+}
+
+.booked-hatch-past {
+  background-color: #7f1d1d;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(69, 10, 10, 0.48),
+    rgba(69, 10, 10, 0.48) 4px,
+    rgba(127, 29, 29, 0.88) 4px,
+    rgba(127, 29, 29, 0.88) 8px
   );
 }
