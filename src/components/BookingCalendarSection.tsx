@@ -12,6 +12,7 @@ import {
   LogOut,
   MessageCircle,
   Send,
+  Share2,
   Trash2,
   Wallet,
   XCircle,
@@ -52,7 +53,16 @@ import {
   signOutUser,
 } from '../lib/firebase';
 import { deriveBookingAccessKeySync, verifyAdminPasswordSync } from '../lib/adminAuth';
-import { downloadBookingPdf, downloadCalendarSlotPdf } from '../lib/bookingPdf';
+import {
+  bookingToPdfPayload,
+  buildBookingWhatsAppUrl,
+  calendarSlotToPdfPayload,
+  canSharePdfFiles,
+  downloadBookingPdf,
+  downloadCalendarSlotPdf,
+  formatWhatsAppDisplayPhone,
+  shareBookingPdfFile,
+} from '../lib/bookingPdf';
 import { appendBookingToWebhook } from '../lib/googleSheets';
 import { HOMESTAY_DETAILS } from '../data/propertyData';
 import { FinancialAnalysisPanel } from './FinancialAnalysisPanel';
@@ -164,6 +174,9 @@ export function BookingCalendarSection({
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState<Booking | null>(null);
+  const [autoDownloadedPdfName, setAutoDownloadedPdfName] = useState<string | null>(null);
+  const [sharingPdfId, setSharingPdfId] = useState<string | null>(null);
+  const supportsFileShare = useMemo(() => canSharePdfFiles(), []);
 
   // Google Sheet append modal / guide coordination
   const [pendingSheetBooking, setPendingSheetBooking] = useState<Booking | null>(null);
@@ -568,7 +581,13 @@ export function BookingCalendarSection({
       };
 
       setBookingSuccess(createdBooking);
+      setAutoDownloadedPdfName(null);
       setWebhookSyncError(null);
+
+      // Automatically generate & download the booking PDF right after saving
+      void downloadBookingPdf(createdBooking)
+        .then((filename) => setAutoDownloadedPdfName(filename))
+        .catch(() => {});
 
       // Jump calendar to the booked check-in month
       const [bookedYear, bookedMonth] = checkIn.split('-').map(Number);
@@ -627,7 +646,7 @@ export function BookingCalendarSection({
   }, [activeSlots, now]);
 
   return (
-    <section id="kalendar-tempahan" className="max-w-[1360px] mx-auto px-4 sm:px-6 py-12 lg:py-16">
+    <section id="kalendar-tempahan" className="scroll-mt-28 max-w-[1360px] mx-auto px-4 sm:px-6 py-12 lg:py-16">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
         <div>
           <p className="text-xs font-medium text-[#14532D] tracking-wide mb-2">
@@ -1062,17 +1081,44 @@ export function BookingCalendarSection({
                           </td>
                           {adminUnlocked && (
                             <td className="py-2.5 pl-3 text-right whitespace-nowrap">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  downloadCalendarSlotPdf(slot, matchedBooking, matchedSheet)
-                                }
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-[#DDE2DC] bg-[#F8F9F7] text-[#14532D] font-medium hover:bg-[#F1F7F3] hover:border-[#14532D] transition-colors cursor-pointer"
-                                title="Muat turun PDF slip tempahan ini"
-                              >
-                                <FileDown className="w-3.5 h-3.5" />
-                                PDF
-                              </button>
+                              {(() => {
+                                const slotPayload = calendarSlotToPdfPayload(
+                                  slot,
+                                  matchedBooking,
+                                  matchedSheet
+                                );
+                                const slotWaUrl = buildBookingWhatsAppUrl(slotPayload);
+                                return (
+                                  <div className="inline-flex items-center justify-end gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void downloadCalendarSlotPdf(slot, matchedBooking, matchedSheet)
+                                      }
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-[#DDE2DC] bg-[#F8F9F7] text-[#14532D] font-medium hover:bg-[#F1F7F3] hover:border-[#14532D] transition-colors cursor-pointer"
+                                      title="Muat turun PDF slip tempahan ini"
+                                    >
+                                      <FileDown className="w-3.5 h-3.5" />
+                                      PDF
+                                    </button>
+                                    {slotWaUrl && (
+                                      <a
+                                        href={slotWaUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={() =>
+                                          void downloadCalendarSlotPdf(slot, matchedBooking, matchedSheet)
+                                        }
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#15803D] text-white font-medium hover:bg-[#166534] transition-colors"
+                                        title={`Muat turun PDF & buka WhatsApp ke ${formatWhatsAppDisplayPhone(slotPayload.phone)}`}
+                                      >
+                                        <MessageCircle className="w-3.5 h-3.5" />
+                                        WA
+                                      </a>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </td>
                           )}
                         </tr>
@@ -1515,7 +1561,11 @@ export function BookingCalendarSection({
               )}
 
               {/* Success Confirmation Receipt */}
-              {bookingSuccess && (
+              {bookingSuccess && (() => {
+                const successPayload = bookingToPdfPayload(bookingSuccess);
+                const successWaUrl = buildBookingWhatsAppUrl(successPayload);
+                const displayWaPhone = formatWhatsAppDisplayPhone(bookingSuccess.phone);
+                return (
                 <div className="p-4 rounded-xl bg-[#F1F7F3] border border-[#84B395] space-y-2.5 text-xs text-[#161B17]">
                   <div className="flex items-center gap-2 font-semibold text-[#14532D] text-sm">
                     <CheckCircle2 className="w-4 h-4" />
@@ -1535,8 +1585,8 @@ export function BookingCalendarSection({
                       <span className="font-semibold">{formatDisplayDate(bookingSuccess.checkOut)}</span>
                     </div>
                     <div>
-                      <span className="block text-[11px] text-[#525C54]">No. Akaun</span>
-                      <span className="font-semibold">{bookingSuccess.accountNumber}</span>
+                      <span className="block text-[11px] text-[#525C54]">No. Telefon</span>
+                      <span className="font-semibold">{bookingSuccess.phone || '—'}</span>
                     </div>
                     <div>
                       <span className="block text-[11px] text-[#525C54]">Jumlah</span>
@@ -1549,6 +1599,60 @@ export function BookingCalendarSection({
                         </span>
                       )}
                     </div>
+                  </div>
+
+                  {/* Auto-PDF & WhatsApp Guest Delivery Box */}
+                  <div className="p-3 rounded-lg bg-white border border-[#84B395] space-y-2">
+                    <div className="flex items-center justify-between gap-2 text-[11px] font-semibold text-[#14532D]">
+                      <span className="inline-flex items-center gap-1.5">
+                        <FileDown className="w-3.5 h-3.5 shrink-0" />
+                        {autoDownloadedPdfName
+                          ? 'Slip PDF telah dimuat turun secara automatik'
+                          : 'Menjana slip PDF tempahan secara automatik...'}
+                      </span>
+                    </div>
+
+                    {successWaUrl ? (
+                      <>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <a
+                            href={successWaUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#15803D] text-white text-xs font-semibold hover:bg-[#166534] transition-colors"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            Hantar WhatsApp ke {displayWaPhone}
+                          </a>
+
+                          {supportsFileShare && (
+                            <button
+                              type="button"
+                              disabled={sharingPdfId === bookingSuccess.id}
+                              onClick={async () => {
+                                setSharingPdfId(bookingSuccess.id);
+                                try {
+                                  await shareBookingPdfFile(successPayload);
+                                } finally {
+                                  setSharingPdfId(null);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#14532D] bg-[#F1F7F3] text-[#14532D] text-xs font-semibold hover:bg-[#E4EFE8] transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <Share2 className="w-3.5 h-3.5" />
+                              {sharingPdfId === bookingSuccess.id ? 'Menyedia...' : 'Kongsi Fail PDF Terus'}
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-[#525C54] leading-relaxed">
+                          Mesej pengesahan lengkap beserta waktu Check-In/Out &amp; lokasi Google Maps telah diisi siap. Lampirkan fail PDF yang baru dimuat turun terus di ruang sembang WhatsApp tetamu.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                        Nombor telefon ({bookingSuccess.phone || 'tiada'}) tidak sah untuk pautan WhatsApp. Anda masih boleh muat turun PDF di bawah.
+                      </p>
+                    )}
                   </div>
 
                   {/* Google Sheet sync status inside receipt */}
@@ -1592,11 +1696,11 @@ export function BookingCalendarSection({
                   <div className="pt-2 border-t border-[#C6DEC9] flex flex-wrap items-center justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => downloadBookingPdf(bookingSuccess)}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#14532D] text-white text-xs font-semibold hover:bg-[#166534] transition-colors cursor-pointer"
+                      onClick={() => void downloadBookingPdf(bookingSuccess)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#14532D] bg-white text-[#14532D] text-xs font-semibold hover:bg-[#F8F9F7] transition-colors cursor-pointer"
                     >
                       <FileDown className="w-3.5 h-3.5" />
-                      Muat Turun PDF Slip Tempahan
+                      Muat Turun Semula PDF
                     </button>
 
                     {!isBookingInLiveSheet(bookingSuccess) && (
@@ -1618,7 +1722,8 @@ export function BookingCalendarSection({
                     )}
                   </div>
                 </div>
-              )}
+                );
+              })()}
 
               {sheetsWebhookUrl && (
                 <label className="flex items-start gap-2.5 p-3 rounded-xl bg-[#F1F7F3] border border-[#C6DEC9] text-xs text-[#14532D] cursor-pointer">
@@ -1753,12 +1858,60 @@ export function BookingCalendarSection({
                         <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => downloadBookingPdf(item)}
+                            onClick={() => void downloadBookingPdf(item)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#14532D] bg-white text-xs font-semibold text-[#14532D] hover:bg-[#F1F7F3] transition-colors cursor-pointer"
                           >
                             <FileDown className="w-3.5 h-3.5" />
-                            Muat Turun PDF
+                            PDF
                           </button>
+
+                          {(() => {
+                            const itemPayload = bookingToPdfPayload(item);
+                            const itemWaUrl = buildBookingWhatsAppUrl(itemPayload);
+                            return (
+                              <>
+                                {itemWaUrl ? (
+                                  <a
+                                    href={itemWaUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={() => void downloadBookingPdf(item)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#15803D] text-white text-xs font-semibold hover:bg-[#166534] transition-colors"
+                                    title={`Muat turun PDF & buka WhatsApp ke ${formatWhatsAppDisplayPhone(item.phone)}`}
+                                  >
+                                    <MessageCircle className="w-3.5 h-3.5" />
+                                    WhatsApp + PDF
+                                  </a>
+                                ) : (
+                                  <span
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#F8F9F7] border border-[#DDE2DC] text-[11px] text-[#9AA39C]"
+                                    title="No. telefon tidak sah untuk WhatsApp"
+                                  >
+                                    <MessageCircle className="w-3.5 h-3.5" />
+                                    Tiada No. WA
+                                  </span>
+                                )}
+                                {supportsFileShare && (
+                                  <button
+                                    type="button"
+                                    disabled={sharingPdfId === item.id}
+                                    onClick={async () => {
+                                      setSharingPdfId(item.id);
+                                      try {
+                                        await shareBookingPdfFile(itemPayload);
+                                      } finally {
+                                        setSharingPdfId(null);
+                                      }
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#DDE2DC] bg-[#F8F9F7] text-xs font-medium text-[#161B17] hover:border-[#14532D] hover:text-[#14532D] transition-colors cursor-pointer disabled:opacity-50"
+                                  >
+                                    <Share2 className="w-3.5 h-3.5" />
+                                    {sharingPdfId === item.id ? 'Sedia...' : 'Kongsi PDF'}
+                                  </button>
+                                )}
+                              </>
+                            );
+                          })()}
 
                           {item.status === 'confirmed' && (
                             isBookingInLiveSheet(item) ? (

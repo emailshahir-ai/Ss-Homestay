@@ -580,7 +580,7 @@ function HomestayApp() {
               </div>
 
               <h1 className="font-display text-3xl sm:text-4xl lg:text-[2.75rem] font-semibold tracking-tight text-[#161B17] leading-[1.14] text-balance">
-                Penginapan Selesa & Luas di Ss Homestay dan Roomstay
+                Nikmati Percutian Yang Selesa Di Ss Homestay & Roomstay
               </h1>
 
               <p className="text-sm sm:text-base text-[#525C54] leading-relaxed">

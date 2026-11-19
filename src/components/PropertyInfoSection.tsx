@@ -12,7 +12,7 @@ export function PropertyInfoSection({ onChooseUnit }: PropertyInfoSectionProps) 
       {/* 1. Maklumat Homestay */}
       <section
         id="maklumat-homestay"
-        className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 pt-10 border-t border-[#DDE2DC] items-start"
+        className="scroll-mt-28 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 pt-10 border-t border-[#DDE2DC] items-start"
       >
         <div className="lg:col-span-5 space-y-4">
           <p className="text-xs font-medium text-[#14532D]">01. Maklumat Homestay</p>
@@ -163,7 +163,7 @@ export function PropertyInfoSection({ onChooseUnit }: PropertyInfoSectionProps) 
       {/* 2. Maklumat Roomstay */}
       <section
         id="maklumat-roomstay"
-        className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 pt-10 border-t border-[#DDE2DC] items-start"
+        className="scroll-mt-28 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 pt-10 border-t border-[#DDE2DC] items-start"
       >
         <div className="lg:col-span-5 space-y-4">
           <p className="text-xs font-medium text-[#14532D]">02. Maklumat Roomstay</p>

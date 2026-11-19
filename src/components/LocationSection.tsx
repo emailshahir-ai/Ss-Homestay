@@ -22,7 +22,7 @@ export function LocationSection() {
   return (
     <section
       id="lokasi"
-      className="max-w-[1360px] mx-auto px-4 sm:px-6 py-12 border-t border-[#DDE2DC]"
+      className="scroll-mt-28 max-w-[1360px] mx-auto px-4 sm:px-6 py-12 border-t border-[#DDE2DC]"
     >
       <div className="mb-8">
         <p className="text-xs font-medium text-[#14532D] mb-2">05. Lokasi</p>

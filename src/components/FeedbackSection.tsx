@@ -115,7 +115,7 @@ export function FeedbackSection({
   return (
     <section
       id="maklum-balas"
-      className="max-w-[1360px] mx-auto px-4 sm:px-6 py-12 border-t border-[#DDE2DC]"
+      className="scroll-mt-28 max-w-[1360px] mx-auto px-4 sm:px-6 py-12 border-t border-[#DDE2DC]"
     >
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
         <div>

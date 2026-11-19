@@ -67,14 +67,14 @@ export function Navbar({ onBookClick, adminUnlocked = false }: NavbarProps) {
       <div className="hidden md:block bg-[#14532D] border-b border-[#0F3F22]">
         <nav
           aria-label="Menu Utama"
-          className="max-w-[1360px] mx-auto px-4 sm:px-6 flex items-center justify-between"
+          className="max-w-[1360px] mx-auto px-4 sm:px-6 overflow-x-auto"
         >
-          <div className="flex items-center divide-x divide-white/15 w-full">
+          <div className="flex items-center justify-between divide-x divide-white/15 w-full">
             {MAIN_MENU_ITEMS.map((item) => (
               <a
                 key={item.id}
                 href={item.href}
-                className="flex-1 text-center px-3 py-2.5 text-xs lg:text-[13px] font-medium text-white/95 hover:text-white hover:bg-[#166534] transition-colors whitespace-nowrap focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white"
+                className="flex-auto text-center px-3 lg:px-4 py-2.5 text-xs lg:text-[13px] font-medium text-white/95 hover:text-white hover:bg-[#166534] transition-colors whitespace-nowrap focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white"
               >
                 {item.label}
               </a>

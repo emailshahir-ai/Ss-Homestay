@@ -72,7 +72,9 @@ async function loadLogoDataUrl(): Promise<string | null> {
   }
 }
 
-export async function generateBookingPdf(payload: BookingPdfPayload): Promise<void> {
+async function buildBookingPdfDocument(
+  payload: BookingPdfPayload
+): Promise<{ doc: jsPDF; filename: string }> {
   const logoDataUrl = await loadLogoDataUrl();
 
   const doc = new jsPDF({
@@ -312,11 +314,58 @@ export async function generateBookingPdf(payload: BookingPdfPayload): Promise<vo
   const unitTag = payload.unitType === 'homestay' ? 'SsHomestay' : 'SsRoomstay';
   const guestTag = sanitizeFilenamePart(payload.guestName);
   const filename = `Slip-Tempahan-${unitTag}-${guestTag}-${payload.checkIn}.pdf`;
-  doc.save(filename);
+  return { doc, filename };
 }
 
-export async function downloadBookingPdf(booking: Booking): Promise<void> {
-  await generateBookingPdf({
+export async function generateBookingPdf(payload: BookingPdfPayload): Promise<string> {
+  const { doc, filename } = await buildBookingPdfDocument(payload);
+  doc.save(filename);
+  return filename;
+}
+
+export async function createBookingPdfFile(payload: BookingPdfPayload): Promise<File> {
+  const { doc, filename } = await buildBookingPdfDocument(payload);
+  const blob = doc.output('blob');
+  return new File([blob], filename, { type: 'application/pdf' });
+}
+
+/**
+ * Normalizes a Malaysian/international phone string into E.164 digits for wa.me links.
+ * Returns null if the phone value is missing, placeholder (e.g. "-", "0000"), or too short.
+ */
+export function normalizeMalaysiaWhatsAppPhone(rawPhone?: string): string | null {
+  if (!rawPhone) return null;
+  const digits = rawPhone.replace(/\D/g, '');
+  if (digits.length < 8) return null;
+  if (/^0+$/.test(digits)) return null;
+
+  if (digits.startsWith('60') && digits.length >= 10 && digits.length <= 13) {
+    return digits;
+  }
+  if (digits.startsWith('0') && digits.length >= 9 && digits.length <= 12) {
+    return `60${digits.slice(1)}`;
+  }
+  if (digits.startsWith('1') && digits.length >= 8 && digits.length <= 10) {
+    return `60${digits}`;
+  }
+  if (digits.length >= 9 && digits.length <= 15) {
+    return digits;
+  }
+  return null;
+}
+
+export function formatWhatsAppDisplayPhone(rawPhone?: string): string {
+  const normalized = normalizeMalaysiaWhatsAppPhone(rawPhone);
+  if (!normalized) return rawPhone?.trim() || '—';
+  if (normalized.startsWith('60') && normalized.length >= 10) {
+    const rest = normalized.slice(2);
+    return `+60 ${rest.slice(0, 2)}-${rest.slice(2)}`;
+  }
+  return `+${normalized}`;
+}
+
+export function bookingToPdfPayload(booking: Booking): BookingPdfPayload {
+  return {
     referenceId: booking.id,
     unitType: booking.unitType,
     guestName: booking.guestName,
@@ -330,17 +379,21 @@ export async function downloadBookingPdf(booking: Booking): Promise<void> {
     accountNumber: booking.accountNumber,
     status: booking.status,
     sourceLabel: 'Rekod Sistem Admin',
-  });
+  };
 }
 
-export async function downloadSheetBookingPdf(row: SheetBookingRow): Promise<void> {
+export function sheetRowToPdfPayload(row: SheetBookingRow): BookingPdfPayload {
   const nights = Math.max(1, calculateNights(row.checkIn, row.checkOut));
   const baseSubtotal = nights * UNIT_RATES[row.unitType].ratePerNight;
-  const hasRecordedTotal = typeof row.totalAmount === 'number' && Number.isFinite(row.totalAmount) && row.totalAmount >= 0;
+  const hasRecordedTotal =
+    typeof row.totalAmount === 'number' && Number.isFinite(row.totalAmount) && row.totalAmount >= 0;
   const totalAmount = hasRecordedTotal ? row.totalAmount! : baseSubtotal;
-  const derivedDiscount = hasRecordedTotal && baseSubtotal > totalAmount ? Math.round((baseSubtotal - totalAmount) * 100) / 100 : 0;
+  const derivedDiscount =
+    hasRecordedTotal && baseSubtotal > totalAmount
+      ? Math.round((baseSubtotal - totalAmount) * 100) / 100
+      : 0;
 
-  await generateBookingPdf({
+  return {
     referenceId: `GS-${row.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 14)}`,
     unitType: row.unitType,
     guestName: row.name,
@@ -353,26 +406,24 @@ export async function downloadSheetBookingPdf(row: SheetBookingRow): Promise<voi
     accountNumber: row.timestamp ? `Google Sheet (${row.timestamp})` : 'Rekod Google Sheet',
     status: 'confirmed',
     sourceLabel: 'Rekod Google Sheet',
-  });
+  };
 }
 
-export async function downloadCalendarSlotPdf(
+export function calendarSlotToPdfPayload(
   slot: AvailabilitySlot,
   matchedBooking?: Booking,
   matchedSheet?: SheetBookingRow
-): Promise<void> {
+): BookingPdfPayload {
   if (matchedBooking) {
-    await downloadBookingPdf(matchedBooking);
-    return;
+    return bookingToPdfPayload(matchedBooking);
   }
   if (matchedSheet) {
-    await downloadSheetBookingPdf(matchedSheet);
-    return;
+    return sheetRowToPdfPayload(matchedSheet);
   }
 
   const nights = Math.max(1, calculateNights(slot.checkIn, slot.checkOut));
   const totalAmount = nights * UNIT_RATES[slot.unitType].ratePerNight;
-  await generateBookingPdf({
+  return {
     referenceId: slot.bookingId || slot.id,
     unitType: slot.unitType,
     guestName: slot.guestName || 'Tetamu Berdaftar',
@@ -382,5 +433,102 @@ export async function downloadCalendarSlotPdf(
     totalAmount,
     status: slot.status,
     sourceLabel: slot.source === 'sheet' ? 'Rekod Google Sheet' : 'Rekod Kalendar',
-  });
+  };
+}
+
+export function buildBookingWhatsAppMessage(payload: BookingPdfPayload): string {
+  const unitConfig = UNIT_RATES[payload.unitType];
+  const computedNights =
+    payload.nights > 0 ? payload.nights : Math.max(1, calculateNights(payload.checkIn, payload.checkOut));
+  const discountVal = Math.max(0, Number(payload.discountAmount || 0));
+
+  const lines: string[] = [
+    '*SLIP PENGESAHAN TEMPAHAN*',
+    '*Ss Homestay & Roomstay*',
+    '--------------------------------',
+    `Nama Tetamu: *${payload.guestName}*`,
+    `Unit Penginapan: *${unitConfig.label}*`,
+    `Tarikh Masuk: *${formatDisplayDate(payload.checkIn)}* (Check-In ${HOMESTAY_DETAILS.checkInTime})`,
+    `Tarikh Keluar: *${formatDisplayDate(payload.checkOut)}* (Check-Out ${HOMESTAY_DETAILS.checkOutTime})`,
+    `Tempoh: *${computedNights} malam*`,
+  ];
+
+  if (discountVal > 0) {
+    lines.push(`Diskaun: -${formatMYR(discountVal)}`);
+  }
+
+  lines.push(`Jumlah Bayaran: *${formatMYR(payload.totalAmount)}*`);
+  lines.push(`Status: *${payload.status === 'cancelled' ? 'DIBATALKAN' : 'DISAHKAN'}*`);
+  lines.push('--------------------------------');
+  lines.push(`Alamat: ${LOCATION_INFO.address}`);
+  lines.push(`Lokasi Google Maps: ${LOCATION_INFO.googleMapsUrl}`);
+  lines.push('');
+  lines.push('Slip tempahan rasmi (PDF) disertakan bersama mesej ini. Terima kasih kerana memilih Ss Homestay & Roomstay!');
+
+  return lines.join('\n');
+}
+
+export function buildBookingWhatsAppUrl(payload: BookingPdfPayload): string | null {
+  const waPhone = normalizeMalaysiaWhatsAppPhone(payload.phone);
+  if (!waPhone) return null;
+  const text = buildBookingWhatsAppMessage(payload);
+  return `https://wa.me/${waPhone}?text=${encodeURIComponent(text)}`;
+}
+
+export function canSharePdfFiles(): boolean {
+  if (typeof navigator === 'undefined' || typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function') {
+    return false;
+  }
+  try {
+    const sample = new File([''], 'slip.pdf', { type: 'application/pdf' });
+    return navigator.canShare({ files: [sample] });
+  } catch {
+    return false;
+  }
+}
+
+export async function shareBookingPdfFile(
+  payload: BookingPdfPayload
+): Promise<'shared' | 'downloaded' | 'cancelled'> {
+  const pdfFile = await createBookingPdfFile(payload);
+  const text = buildBookingWhatsAppMessage(payload);
+
+  if (
+    typeof navigator !== 'undefined' &&
+    typeof navigator.share === 'function' &&
+    typeof navigator.canShare === 'function' &&
+    navigator.canShare({ files: [pdfFile] })
+  ) {
+    try {
+      await navigator.share({
+        title: `Slip Tempahan ${UNIT_RATES[payload.unitType].label} - ${payload.guestName}`,
+        text,
+        files: [pdfFile],
+      });
+      return 'shared';
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        return 'cancelled';
+      }
+    }
+  }
+
+  await generateBookingPdf(payload);
+  return 'downloaded';
+}
+
+export async function downloadBookingPdf(booking: Booking): Promise<string> {
+  return generateBookingPdf(bookingToPdfPayload(booking));
+}
+
+export async function downloadSheetBookingPdf(row: SheetBookingRow): Promise<string> {
+  return generateBookingPdf(sheetRowToPdfPayload(row));
+}
+
+export async function downloadCalendarSlotPdf(
+  slot: AvailabilitySlot,
+  matchedBooking?: Booking,
+  matchedSheet?: SheetBookingRow
+): Promise<string> {
+  return generateBookingPdf(calendarSlotToPdfPayload(slot, matchedBooking, matchedSheet));
 }

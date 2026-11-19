@@ -28,7 +28,7 @@ export function GallerySection() {
   return (
     <div className="max-w-[1360px] mx-auto px-4 sm:px-6 space-y-16 py-8">
       {/* 3. Gambar Homestay */}
-      <section id="gambar-homestay" className="pt-10 border-t border-[#DDE2DC]">
+      <section id="gambar-homestay" className="scroll-mt-28 pt-10 border-t border-[#DDE2DC]">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
           <div>
             <p className="text-xs font-medium text-[#14532D] mb-2">03. Gambar Homestay</p>
@@ -75,7 +75,7 @@ export function GallerySection() {
       </section>
 
       {/* 4. Gambar Roomstay */}
-      <section id="gambar-roomstay" className="pt-10 border-t border-[#DDE2DC]">
+      <section id="gambar-roomstay" className="scroll-mt-28 pt-10 border-t border-[#DDE2DC]">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
           <div>
             <p className="text-xs font-medium text-[#14532D] mb-2">04. Gambar Roomstay</p>
